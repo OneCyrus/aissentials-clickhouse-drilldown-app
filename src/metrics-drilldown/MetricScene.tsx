@@ -20,7 +20,6 @@ import {
   Badge,
   Button,
   Combobox,
-  Field,
   Icon,
   Input,
   LinkButton,
@@ -53,6 +52,7 @@ import {
 } from 'clickhouse/types';
 import { PLUGIN_BASE_URL, ROUTES } from '../constants';
 import {
+  Control,
   copyCurrentUrl,
   exploreUrl,
   filterConditionSql,
@@ -71,8 +71,11 @@ import {
   seriesName,
   seriesSortOptions,
   splitSeriesData,
+  Spacer,
   sqlQuery,
   store,
+  Toolbar,
+  ToolbarGroup,
   supportsSignal,
 } from '../shared';
 import { countSql, logLinesSql } from '../logs-drilldown/sql';
@@ -604,10 +607,9 @@ function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
         </Stack>
       </div>
 
-      <div className={styles.functionRow}>
-        <Field label="Function" className={styles.field} horizontal>
+      <Toolbar>
+        <Control label="Function" tooltip="What is computed per series, as a PromQL function would">
           <RadioButtonGroup
-            size="sm"
             options={functions.map((fn) => ({
               label: metricFunctionLabels[fn].label,
               value: fn,
@@ -616,31 +618,34 @@ function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
             value={query.fn}
             onChange={(fn) => model.setQuery({ fn })}
           />
-        </Field>
+        </Control>
         {query.fn === MetricFunction.Quantile && (
-          <MultiCombobox
-            aria-label="Quantiles"
-            options={quantileOptions}
-            value={(query.quantiles || []).map(String)}
-            onChange={(options) =>
-              model.setQuery({ quantiles: options.map((o) => Number(o.value)).sort((a, b) => a - b) })
-            }
-            width="auto"
-            minWidth={20}
-          />
+          <Control label="Quantiles">
+            <MultiCombobox
+              aria-label="Quantiles"
+              options={quantileOptions}
+              value={(query.quantiles || []).map(String)}
+              onChange={(options) =>
+                model.setQuery({ quantiles: options.map((o) => Number(o.value)).sort((a, b) => a - b) })
+              }
+              width="auto"
+              minWidth={16}
+            />
+          </Control>
         )}
         {usesSeriesAggregation(entry.type, query.fn) && (
-          <RadioButtonGroup
-            size="sm"
-            options={['sum', 'avg', 'min', 'max'].map((agg) => ({
-              label: agg,
-              value: agg as MetricSeriesAggregation,
-            }))}
-            value={query.aggregation}
-            onChange={(aggregation) => model.setQuery({ aggregation })}
-          />
+          <Control label="Aggregate" tooltip="How the series are combined">
+            <RadioButtonGroup
+              options={['sum', 'avg', 'min', 'max'].map((agg) => ({
+                label: agg,
+                value: agg as MetricSeriesAggregation,
+              }))}
+              value={query.aggregation}
+              onChange={(aggregation) => model.setQuery({ aggregation })}
+            />
+          </Control>
         )}
-      </div>
+      </Toolbar>
 
       <div className={styles.mainPanel}>{main && <main.Component model={main} />}</div>
 
@@ -664,8 +669,8 @@ function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
       </TabsBar>
 
       {actionView === 'breakdown' && breakdownable && (
-        <div className={styles.controls}>
-          <Field label="Group by" description="By label" className={styles.field}>
+        <Toolbar>
+          <Control label="Group by" tooltip="Break the metric down by the values of a label">
             {groupOptions.length <= 4 ? (
               <RadioButtonGroup
                 options={groupOptions}
@@ -680,12 +685,15 @@ function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
                 value={groupBy}
                 onChange={(option) => model.setView({ groupBy: option?.value || ALL })}
                 isClearable
-                width={36}
+                width={32}
               />
             )}
-          </Field>
+          </Control>
           {entry.type === MetricType.Histogram && (
-            <Field label="Histogram breakdown function" className={styles.field}>
+            <Control
+              label="Breakdown function"
+              tooltip="Sum: observations per second; pNN: the quantile of each label value"
+            >
               <RadioButtonGroup
                 options={(['sum', 'p99', 'p95', 'p75', 'p50'] as HistogramBreakdownFn[]).map((fn) => ({
                   label: fn === 'sum' ? 'Sum' : fn,
@@ -694,39 +702,34 @@ function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
                 value={histogramFn}
                 onChange={(value) => model.setView({ histogramFn: value })}
               />
-            </Field>
+            </Control>
           )}
-          <div className={styles.spacer} />
-          {groupBy !== ALL && (
-            <>
-              <Field label="Search" className={styles.field}>
+          <ToolbarGroup>
+            {groupBy !== ALL && (
+              <>
                 <Input
                   prefix={<Icon name="search" />}
                   placeholder="Quick search label values"
+                  aria-label="Quick search label values"
                   value={searchText}
                   onChange={(e) => setSearchText(e.currentTarget.value)}
                   onKeyDown={(e) => e.key === 'Escape' && setSearchText('')}
-                  width={32}
+                  width={30}
                 />
-              </Field>
-              <Field
-                label="Sort by"
-                description="Sorts values using standard or smart time series calculations."
-                className={styles.field}
-              >
-                <Combobox
-                  aria-label="Sort by"
-                  placeholder="Choose criteria"
-                  options={seriesSortOptions}
-                  value={sort}
-                  onChange={(option) => model.setView({ sort: option.value })}
-                  width={24}
-                />
-              </Field>
-            </>
-          )}
-          <Field label="View" className={styles.field}>
+                <Control label="Sort by" tooltip="Sorts values using standard or smart time series calculations.">
+                  <Combobox
+                    aria-label="Sort by"
+                    placeholder="Choose criteria"
+                    options={seriesSortOptions}
+                    value={sort}
+                    onChange={(option) => model.setView({ sort: option.value })}
+                    width={20}
+                  />
+                </Control>
+              </>
+            )}
             <RadioButtonGroup
+              aria-label="View"
               options={(groupBy === ALL ? ['grid', 'rows'] : ['single', 'grid', 'rows']).map((value) => ({
                 value: value as BreakdownLayout,
                 label: value[0].toUpperCase() + value.slice(1),
@@ -734,8 +737,8 @@ function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
               value={groupBy === ALL && layout === 'single' ? 'grid' : layout}
               onChange={(value) => model.setView({ layout: value })}
             />
-          </Field>
-        </div>
+          </ToolbarGroup>
+        </Toolbar>
       )}
       {actionView === 'breakdown' && !breakdownable && (
         <p className={styles.note}>A heatmap shows all series together; pick another function to break it down.</p>
@@ -745,8 +748,8 @@ function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
       )}
 
       {actionView === 'related' && (
-        <div className={styles.controls}>
-          <Field label="View by" className={styles.field}>
+        <Toolbar>
+          <Control label="View by" tooltip="Metrics with this name prefix">
             <Combobox
               aria-label="View by prefix"
               options={[
@@ -755,47 +758,42 @@ function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
               ]}
               value={relatedPrefix}
               onChange={(option) => model.setView({ relatedPrefix: option.value })}
-              width={28}
+              width={24}
             />
-          </Field>
-          <Field label="Search" className={styles.field}>
-            <Input
-              prefix={<Icon name="search" />}
-              placeholder="Search related metrics"
-              value={relatedSearch}
-              onChange={(e) => model.setView({ relatedSearch: e.currentTarget.value })}
-              width={36}
-            />
-          </Field>
-        </div>
+          </Control>
+          <Input
+            prefix={<Icon name="search" />}
+            placeholder="Search related metrics"
+            aria-label="Search related metrics"
+            value={relatedSearch}
+            onChange={(e) => model.setView({ relatedSearch: e.currentTarget.value })}
+            width={32}
+          />
+        </Toolbar>
       )}
 
       {actionView === 'logs' && (
         <>
-          <div className={styles.controls}>
-            <Field
-              label="Logs data source"
-              description="ClickHouse data sources with OpenTelemetry logs"
-              className={styles.field}
-            >
+          <Toolbar>
+            <Control label="Logs data source" tooltip="ClickHouse data sources with OpenTelemetry logs">
               <Combobox
                 aria-label="Logs data source"
                 options={logsSources.map((settings) => ({ label: settings.name, value: settings.uid }))}
                 value={logsUid || logsSources[0]?.uid || null}
                 onChange={(option) => model.setView({ logsUid: option.value })}
-                width={32}
+                width={28}
               />
-            </Field>
-            <div className={styles.spacer} />
+            </Control>
+            <Spacer />
             <LinkButton
               variant="secondary"
               icon="external-link-alt"
               href={model.logsDrilldownUrl()}
-              tooltip="Use the Logs Drilldown app to explore these logs"
+              tooltip="Explore these logs in the Logs Drilldown"
             >
               Open in Logs Drilldown
             </LinkButton>
-          </div>
+          </Toolbar>
           {!body && (
             <Alert severity="info" title="No related logs found">
               Logs are matched to the metric by the filters they share: the service and resource attributes such as
@@ -825,11 +823,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     flexWrap: 'wrap',
   }),
   title: css({ margin: 0 }),
-  functionRow: css({ display: 'flex', gap: theme.spacing(1), flexWrap: 'wrap', alignItems: 'center' }),
-  mainPanel: css({ height: 'max(280px, 32vh)' }),
-  controls: css({ display: 'flex', alignItems: 'flex-end', gap: theme.spacing(2), flexWrap: 'wrap' }),
-  field: css({ marginBottom: 0 }),
-  spacer: css({ flexGrow: 1 }),
+  mainPanel: css({ height: 'max(280px, 30vh)', flexShrink: 0 }),
   note: css({ color: theme.colors.text.secondary }),
-  tallBody: css({ height: 480 }),
+  tallBody: css({ height: 'max(420px, calc(100vh - 560px))' }),
 });

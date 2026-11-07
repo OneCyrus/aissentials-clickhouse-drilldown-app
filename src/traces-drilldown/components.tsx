@@ -1,7 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { css, cx } from '@emotion/css';
 import { dateTimeFormat, GrafanaTheme2 } from '@grafana/data';
-import { Button, Checkbox, Icon, IconButton, Input, Tab, TabsBar, Tooltip, useStyles2, useTheme2 } from '@grafana/ui';
+import {
+  Button,
+  Checkbox,
+  Icon,
+  IconButton,
+  Input,
+  RadioButtonGroup,
+  Tooltip,
+  useStyles2,
+  useTheme2,
+} from '@grafana/ui';
 import { store } from '../shared';
 import { defaultFavorites, normalizeMessage, SERVICE_KEY } from './sql';
 
@@ -74,13 +84,16 @@ export function AttributesSidebar({
         onChange={(e) => setSearch(e.currentTarget.value)}
         onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
       />
-      <TabsBar className={styles.tabs}>
-        {(['favorites', 'all', 'resource', 'span'] as Scope[])
-          .filter((s) => !multi || s !== 'favorites')
-          .map((s) => (
-            <Tab key={s} label={s[0].toUpperCase() + s.slice(1)} active={scope === s} onChangeTab={() => setScope(s)} />
-          ))}
-      </TabsBar>
+      <div className={styles.scopes}>
+        <RadioButtonGroup
+          size="sm"
+          options={(['favorites', 'all', 'resource', 'span'] as Scope[])
+            .filter((s) => !multi || s !== 'favorites')
+            .map((s) => ({ label: s[0].toUpperCase() + s.slice(1), value: s }))}
+          value={scope}
+          onChange={setScope}
+        />
+      </div>
       {multi && selected.length > 0 && <span className={styles.muted}>Selected ({selected.length}):</span>}
       <div className={styles.list}>
         {allOption && (
@@ -417,7 +430,7 @@ export const isFavoriteDefault = (attribute: string) => attribute === SERVICE_KE
 
 const getStyles = (theme: GrafanaTheme2) => ({
   sidebar: css({
-    width: 260,
+    width: 280,
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
@@ -425,7 +438,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     borderRight: `1px solid ${theme.colors.border.weak}`,
     paddingRight: theme.spacing(1),
   }),
-  tabs: css({ flexWrap: 'wrap' }),
+  scopes: css({ flexShrink: 0 }),
   list: css({ overflowY: 'auto', maxHeight: 600 }),
   item: css({
     display: 'flex',

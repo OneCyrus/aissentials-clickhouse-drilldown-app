@@ -8,10 +8,14 @@ import { buildMetricsScene } from '../metrics-drilldown';
 import { buildLogsScene } from '../logs-drilldown';
 import { buildTracesScene } from '../traces-drilldown';
 
-const page = (title: string, subTitle: string, route: ROUTES, getScene: () => EmbeddedScene) =>
+/**
+ * A page without the large title and subtitle: like Grafana's Drilldown apps, the breadcrumb names
+ * the page and the controls start at the top.
+ */
+const page = (title: string, route: ROUTES, getScene: () => EmbeddedScene) =>
   new SceneAppPage({
     title,
-    subTitle,
+    renderTitle: () => null,
     url: prefixRoute(route),
     routePath: `${route}/*`,
     getScene,
@@ -20,9 +24,9 @@ const page = (title: string, subTitle: string, route: ROUTES, getScene: () => Em
 const getSceneApp = () =>
   new SceneApp({
     pages: [
-      page('Metrics', 'Browse OpenTelemetry metrics without writing queries', ROUTES.Metrics, buildMetricsScene),
-      page('Logs', 'Browse OpenTelemetry logs by service, labels, fields and patterns', ROUTES.Logs, buildLogsScene),
-      page('Traces', 'Find what makes requests slow or fail, without writing queries', ROUTES.Traces, buildTracesScene),
+      page('Metrics', ROUTES.Metrics, buildMetricsScene),
+      page('Logs', ROUTES.Logs, buildLogsScene),
+      page('Traces', ROUTES.Traces, buildTracesScene),
     ],
     urlSyncOptions: { updateUrlOnInit: true, createBrowserHistorySteps: true },
   });

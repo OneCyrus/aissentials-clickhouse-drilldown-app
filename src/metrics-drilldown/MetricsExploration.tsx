@@ -32,7 +32,7 @@ import {
 import { MetricCatalogEntry, metricTypeLabels } from 'clickhouse/metrics';
 import { MetricLabel, MetricType } from 'clickhouse/types';
 import { VAR_DATASOURCE, VAR_FILTERS } from '../constants';
-import { frameRows, getSignalSource, interpolate, runSql, SignalSource, store } from '../shared';
+import { Control, frameRows, getSignalSource, interpolate, runSql, SignalSource, store } from '../shared';
 import {
   catalogSql,
   FILTERS,
@@ -705,23 +705,24 @@ function MetricsReducer({ model }: SceneComponentProps<MetricsExploration>) {
               <Icon name="layer-group" /> Grouped by <b>{groupLabel?.key}</b>
             </div>
           )}
-          <Stack direction="row" gap={1} alignItems="center">
-            <span className={styles.muted}>Sort by</span>
-            <Combobox
-              aria-label="Sort by"
-              width={24}
-              value={sortBy}
-              options={[
-                {
-                  value: 'default',
-                  label: 'Default',
-                  description: 'Recently selected metrics first, then alphabetical',
-                },
-                { value: 'alphabetical', label: 'Alphabetical [A-Z]' },
-                { value: 'alphabetical-reversed', label: 'Alphabetical [Z-A]' },
-              ]}
-              onChange={(option) => model.setListState({ sortBy: option.value as SortBy })}
-            />
+          <Stack direction="row" gap={2} alignItems="center">
+            <Control label="Sort by" tooltip="Default: recently selected metrics first, then alphabetical">
+              <Combobox
+                aria-label="Sort by"
+                width={24}
+                value={sortBy}
+                options={[
+                  {
+                    value: 'default',
+                    label: 'Default',
+                    description: 'Recently selected metrics first, then alphabetical',
+                  },
+                  { value: 'alphabetical', label: 'Alphabetical [A-Z]' },
+                  { value: 'alphabetical-reversed', label: 'Alphabetical [Z-A]' },
+                ]}
+                onChange={(option) => model.setListState({ sortBy: option.value as SortBy })}
+              />
+            </Control>
             <RadioButtonGroup
               aria-label="Layout switcher"
               options={[

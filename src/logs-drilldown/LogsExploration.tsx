@@ -24,7 +24,6 @@ import {
   Alert,
   Button,
   Combobox,
-  Field,
   Icon,
   IconButton,
   Input,
@@ -39,6 +38,7 @@ import {
 } from '@grafana/ui';
 import { VAR_DATASOURCE, VAR_FILTERS } from '../constants';
 import {
+  Control,
   copyCurrentUrl,
   exploreUrl,
   Format,
@@ -51,9 +51,12 @@ import {
   SeriesSort,
   seriesName,
   SignalSource,
+  Spacer,
   splitSeriesData,
   sqlQuery,
   store,
+  Toolbar,
+  ToolbarGroup,
   valueSortOptions,
 } from '../shared';
 import {
@@ -544,8 +547,9 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     return new SceneFlexLayout({
       direction: 'column',
       children: [
-        new SceneFlexItem({ minHeight: 160, height: '22vh', body: volume }),
-        new SceneFlexItem({ minHeight: 500, body: lines }),
+        // Fixed heights: the page scrolls, so a flex item without one would collapse to nothing.
+        new SceneFlexItem({ minHeight: 160, height: '20vh', body: volume }),
+        new SceneFlexItem({ minHeight: 420, height: 'calc(100vh - 400px)', body: lines }),
       ],
     });
   }
@@ -653,7 +657,10 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     });
     return new SceneFlexLayout({
       direction: 'column',
-      children: [new SceneFlexItem({ height: 220, body: summary }), new SceneFlexItem({ body: repeater })],
+      children: [
+        new SceneFlexItem({ height: 220, body: summary }),
+        new SceneFlexItem({ body: repeater, minHeight: 200 }),
+      ],
     });
   }
 
@@ -714,11 +721,6 @@ function ServiceSelection({ model }: SceneComponentProps<LogsExploration>) {
 
   return (
     <div className={styles.container}>
-      <div className={styles.row}>
-        <Button icon="arrow-right" disabled={!labelFilters.length} onClick={() => model.showLogs(undefined)}>
-          Show logs
-        </Button>
-      </div>
       <div className={styles.tabsRow}>
         <TabsBar>
           {tabs.map((tab) => (
@@ -764,28 +766,39 @@ function ServiceSelection({ model }: SceneComponentProps<LogsExploration>) {
           />
         )}
       </div>
-      <div className={styles.row}>
+      <Toolbar>
         <Input
           className={styles.search}
           prefix={<Icon name="filter" />}
           placeholder={`Search ${labelName}`}
+          aria-label={`Search ${labelName}`}
           value={searchText}
           onChange={(e) => setSearchText(e.currentTarget.value)}
         />
-        <Combobox
-          aria-label="Page size"
-          width={10}
-          options={PAGE_SIZES.map((size) => ({ label: String(size), value: size }))}
-          value={pageSize}
-          onChange={(option) => model.setLanding({ pageSize: option.value })}
-        />
+        <Control label="Per page">
+          <Combobox
+            aria-label="Page size"
+            width={8}
+            options={PAGE_SIZES.map((size) => ({ label: String(size), value: size }))}
+            value={pageSize}
+            onChange={(option) => model.setLanding({ pageSize: option.value })}
+          />
+        </Control>
         <Tooltip content={`${values.length} ${labelName} values have logs for the selected time range.`}>
-          <Icon name="info-circle" />
+          <span className={styles.muted}>
+            Showing {Math.min(total, pageSize * (page + 1)) - page * pageSize} of {total}
+          </span>
         </Tooltip>
-        <span className={styles.muted}>
-          Showing {Math.min(total, pageSize * (page + 1)) - page * pageSize} of {total}
-        </span>
-      </div>
+        <Spacer />
+        <Button
+          icon="arrow-right"
+          disabled={!labelFilters.length}
+          tooltip={labelFilters.length ? 'Show the logs of the label filters' : 'Add a label filter first'}
+          onClick={() => model.showLogs(undefined)}
+        >
+          Show logs
+        </Button>
+      </Toolbar>
       {error && <Alert title="Error while loading logs">{error}</Alert>}
       {loading && !values.length && <LoadingPlaceholder text="Loading…" />}
       {!loading && !error && !total && (
@@ -843,7 +856,6 @@ function LineFilters({ model }: SceneComponentProps<LogsExploration>) {
       {drafts.map((filter, index) => (
         <div key={index} className={styles.lineFilter}>
           <RadioButtonGroup
-            size="sm"
             options={[
               { label: 'Include', value: false },
               { label: 'Exclude', value: true },
@@ -852,7 +864,7 @@ function LineFilters({ model }: SceneComponentProps<LogsExploration>) {
             onChange={(exclude) => update(index, { exclude })}
           />
           <Input
-            width={40}
+            width={32}
             placeholder="Filter logs by string"
             value={filter.text}
             onChange={(e) => update(index, { text: e.currentTarget.value })}
@@ -921,29 +933,29 @@ function ServiceDetails({ model }: SceneComponentProps<LogsExploration>) {
   const primary = model.getPrimaryFilter();
   const by = view === 'labels' ? labelBy : fieldBy;
   const keys = view === 'labels' ? labels : fields;
+  const primaryName = keyDisplayName(model.state.primaryLabel);
 
   return (
     <div className={styles.container}>
-      <div className={styles.row}>
+      <Toolbar>
         <Button variant="secondary" size="sm" icon="arrow-left" onClick={() => model.backToLanding()}>
-          All {keyDisplayName(model.state.primaryLabel)}
+          {primaryName === 'service' ? 'All services' : `All ${primaryName} values`}
         </Button>
         {primary && (
           <h4 className={styles.title}>
-            {keyDisplayName(primary.key)} {primary.operator} {primary.value}
+            <span className={styles.muted}>{keyDisplayName(primary.key)}</span> {primary.value}
           </h4>
         )}
-        <div className={styles.spacer} />
+        <Spacer />
         <Button variant="secondary" size="sm" icon="compass" onClick={() => model.openInExplore()}>
           Explore
         </Button>
         <Button variant="secondary" size="sm" icon="share-alt" tooltip="Copy URL" onClick={() => copyCurrentUrl()} />
-      </div>
-      <div className={styles.filterRow}>
-        <Field
-          label="Log levels"
-          description="Keep only logs whose severity matches your selection. Leave empty to include all levels."
-          className={styles.field}
+      </Toolbar>
+      <Toolbar className={styles.filters}>
+        <Control
+          label="Levels"
+          tooltip="Keep only logs whose severity matches your selection. Leave empty to include all levels."
         >
           <MultiCombobox
             aria-label="Log level filters"
@@ -952,20 +964,21 @@ function ServiceDetails({ model }: SceneComponentProps<LogsExploration>) {
             value={levels}
             onChange={(options) => model.setConditions({ levels: options.map((o) => o.value) })}
             width="auto"
-            minWidth={20}
+            minWidth={14}
           />
-        </Field>
-        <Field
-          label="Fields"
-          description="Filter by log record attributes, such as http.route or user.id."
-          className={styles.field}
+        </Control>
+        <Control label="Fields" tooltip="Filter by log record attributes, such as http.route or user.id.">
+          <div className={styles.fieldsFilter}>
+            {fieldsVariable && <fieldsVariable.Component model={fieldsVariable} />}
+          </div>
+        </Control>
+        <Control
+          label="Line filter"
+          tooltip="Match or exclude text in the log line body: plain text or a regular expression, case sensitive or not. Applied after you stop typing or on Enter."
         >
-          <div>{fieldsVariable && <fieldsVariable.Component model={fieldsVariable} />}</div>
-        </Field>
-        <Field label="Line filter" description="Match or exclude text in the log line body." className={styles.field}>
           <LineFilters model={model} />
-        </Field>
-      </div>
+        </Control>
+      </Toolbar>
       {patterns.length > 0 && (
         <div className={styles.row}>
           {(['include', 'exclude'] as const).map((type) => {
@@ -991,37 +1004,36 @@ function ServiceDetails({ model }: SceneComponentProps<LogsExploration>) {
           })}
         </div>
       )}
-      <TabsBar>
-        <Tab
-          label="Logs"
-          active={view === 'logs'}
-          counter={logsCount}
-          onChangeTab={() => model.setView({ view: 'logs' })}
-        />
-        <Tab
-          label="Labels"
-          active={view === 'labels'}
-          counter={labels.length}
-          onChangeTab={() => model.setView({ view: 'labels' })}
-        />
-        <Tab
-          label="Fields"
-          active={view === 'fields'}
-          counter={fields.length}
-          onChangeTab={() => model.setView({ view: 'fields' })}
-        />
-        <Tab
-          label="Patterns"
-          active={view === 'patterns'}
-          counter={patternsCount}
-          onChangeTab={() => model.setView({ view: 'patterns' })}
-        />
-      </TabsBar>
-      {view === 'logs' && (
-        <div className={styles.row}>
-          <div className={styles.spacer} />
+      <div className={styles.tabsRow}>
+        <TabsBar className={styles.tabs}>
+          <Tab
+            label="Logs"
+            active={view === 'logs'}
+            counter={logsCount}
+            onChangeTab={() => model.setView({ view: 'logs' })}
+          />
+          <Tab
+            label="Labels"
+            active={view === 'labels'}
+            counter={labels.length}
+            onChangeTab={() => model.setView({ view: 'labels' })}
+          />
+          <Tab
+            label="Fields"
+            active={view === 'fields'}
+            counter={fields.length}
+            onChangeTab={() => model.setView({ view: 'fields' })}
+          />
+          <Tab
+            label="Patterns"
+            active={view === 'patterns'}
+            counter={patternsCount}
+            onChangeTab={() => model.setView({ view: 'patterns' })}
+          />
+        </TabsBar>
+        {view === 'logs' && (
           <RadioButtonGroup
-            size="sm"
+            aria-label="Visualization"
             options={[
               { label: 'Logs', value: 'logs' },
               { label: 'Table', value: 'table' },
@@ -1029,14 +1041,17 @@ function ServiceDetails({ model }: SceneComponentProps<LogsExploration>) {
             value={visualization}
             onChange={(value) => model.setView({ visualization: value as Visualization })}
           />
-        </div>
-      )}
+        )}
+      </div>
       {(view === 'labels' || view === 'fields') && (
-        <div className={styles.row}>
-          <Field label={view === 'labels' ? 'Label' : 'Field'} className={styles.field}>
+        <Toolbar>
+          <Control
+            label={view === 'labels' ? 'Label' : 'Field'}
+            tooltip={view === 'labels' ? 'Resource attributes and the level' : 'Log record attributes'}
+          >
             <Combobox
               aria-label={view === 'labels' ? 'Label' : 'Field'}
-              width={30}
+              width={28}
               options={[
                 { label: 'All', value: ALL },
                 ...[...keys]
@@ -1048,34 +1063,33 @@ function ServiceDetails({ model }: SceneComponentProps<LogsExploration>) {
                 model.setView(view === 'labels' ? { labelBy: option.value } : { fieldBy: option.value })
               }
             />
-          </Field>
+          </Control>
           {by !== ALL && (
-            <>
-              <Field label="Search" className={styles.field}>
-                <Input
-                  placeholder="Search for value"
-                  value={valueSearch}
-                  onChange={(e) => model.setView({ valueSearch: e.currentTarget.value })}
-                  width={30}
-                />
-              </Field>
-              <Field
+            <ToolbarGroup>
+              <Input
+                prefix={<Icon name="search" />}
+                placeholder="Search for value"
+                aria-label="Search for value"
+                value={valueSearch}
+                onChange={(e) => model.setView({ valueSearch: e.currentTarget.value })}
+                width={28}
+              />
+              <Control
                 label="Sort by"
-                description="Calculate a derived quantity from the values in your time series and sort by this criteria. Defaults to standard deviation."
-                className={styles.field}
+                tooltip="Calculate a derived quantity from the values in your time series and sort by this criteria. Defaults to standard deviation."
               >
                 <Combobox
                   aria-label="Sort by"
                   placeholder="Choose criteria"
-                  width={22}
+                  width={20}
                   options={valueSortOptions}
                   value={sort}
                   onChange={(option) => model.setView({ sort: option.value })}
                 />
-              </Field>
-            </>
+              </Control>
+            </ToolbarGroup>
           )}
-        </div>
+        </Toolbar>
       )}
       {view !== 'logs' && view !== 'patterns' && !keys.length && (
         <Alert severity="info" title={`We did not find any ${view} for the given time range.`} />
@@ -1093,7 +1107,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
   container: css({ display: 'flex', flexDirection: 'column', gap: theme.spacing(1), width: '100%', flexGrow: 1 }),
   row: css({ display: 'flex', alignItems: 'center', gap: theme.spacing(1), flexWrap: 'wrap' }),
   fill: css({ width: '100%' }),
-  filterRow: css({ display: 'flex', alignItems: 'flex-start', gap: theme.spacing(2), flexWrap: 'wrap' }),
+  filters: css({ alignItems: 'flex-start' }),
+  fieldsFilter: css({ minWidth: 260 }),
+  tabs: css({ flexGrow: 1 }),
   tabsRow: css({ display: 'flex', alignItems: 'center', gap: theme.spacing(1) }),
   title: css({ margin: 0 }),
   search: css({ maxWidth: 500 }),

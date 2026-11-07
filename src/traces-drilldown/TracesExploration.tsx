@@ -25,7 +25,6 @@ import {
   Checkbox,
   Combobox,
   Drawer,
-  Field,
   Icon,
   IconButton,
   Input,
@@ -43,6 +42,7 @@ import { map } from 'rxjs';
 import { toHeatmapFrame } from 'clickhouse/heatmap';
 import { VAR_DATASOURCE, VAR_FILTERS } from '../constants';
 import {
+  Control,
   copyCurrentUrl,
   Format,
   frameRows,
@@ -53,6 +53,8 @@ import {
   searchMatches,
   SignalSource,
   sqlQuery,
+  Toolbar,
+  ToolbarGroup,
 } from '../shared';
 import {
   attributeKeysSql,
@@ -315,6 +317,7 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
         .setCustomFieldConfig('fillOpacity', 75)
         .setCustomFieldConfig('lineWidth', 0)
         .setCustomFieldConfig('axisLabel', errors ? 'error/s' : 'span/s')
+        .setCustomFieldConfig('axisSoftMin', 0)
         .setCustomFieldConfig('stacking', { mode: StackingMode.Normal, group: 'A' })
         .setColor({ mode: 'fixed' as never, fixedColor: errors ? metricColors.errors : metricColors.rate })
         .setOption('legend', { showLegend: false, displayMode: LegendDisplayMode.List, placement: 'bottom', calcs: [] })
@@ -598,7 +601,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
 
   return (
     <div className={styles.container}>
-      <div className={styles.filtersRow}>
+      <Toolbar>
         <span className={styles.label}>Filters</span>
         <RadioButtonGroup
           options={[...primaryOptions, ...(extraSignal ? [extraSignal] : [])].map((signal) => ({
@@ -622,9 +625,9 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
         <div className={styles.filterBar}>
           {filtersVariable && <filtersVariable.Component model={filtersVariable} />}
         </div>
-        <Field label="Trace ID" horizontal className={styles.field}>
+        <Control label="Trace ID" tooltip="Open a trace by its ID">
           <Input
-            width={36}
+            width={30}
             placeholder="Enter an ID and press Enter"
             value={traceInput}
             onChange={(e) => setTraceInput(e.currentTarget.value)}
@@ -633,8 +636,8 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
               traceInput ? <IconButton name="times" aria-label="Clear" onClick={() => setTraceInput('')} /> : undefined
             }
           />
-        </Field>
-      </div>
+        </Control>
+      </Toolbar>
       {error && <Alert title="Error">{error}</Alert>}
 
       <div className={styles.metricCaption}>
@@ -677,7 +680,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
         </div>
       )}
       {metric === 'duration' && (
-        <div className={styles.selectionRow}>
+        <Toolbar>
           <span className={styles.selectionChip} />
           <span>
             Comparison selection: spans slower than <b>{threshold ? formatDuration(threshold * 1000) : '…'}</b>
@@ -695,7 +698,6 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
             onChange={(option) => option && model.setExploration({ threshold: option.value, thresholdAuto: false })}
           />
           <Button
-            size="sm"
             variant="secondary"
             disabled={state.thresholdAuto}
             onClick={() => {
@@ -705,7 +707,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
           >
             {state.thresholdAuto ? 'Slowest traces selected' : 'Select slowest traces'}
           </Button>
-        </div>
+        </Toolbar>
       )}
 
       <div className={styles.tabsRow}>
@@ -749,7 +751,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
             onSelect={(attribute) => model.setExploration({ groupBy: attribute })}
           />
           <div className={styles.content}>
-            <div className={styles.controls}>
+            <Toolbar>
               <span className={styles.muted}>
                 {metric === 'duration'
                   ? 'Attributes are ordered by their average duration.'
@@ -758,34 +760,35 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
               {metric !== 'duration' && (
                 <Tag name={metric === 'errors' ? 'Error' : 'Rate'} colorIndex={metric === 'errors' ? 1 : 3} />
               )}
-              <div className={styles.spacer} />
-              <Input
-                prefix={<Icon name="search" />}
-                placeholder="Search"
-                width={24}
-                value={search}
-                onChange={(e) => model.setExploration({ search: e.currentTarget.value })}
-              />
-              {metric === 'duration' && (
-                <Field label="Percentiles" horizontal className={styles.field}>
-                  <MultiCombobox
-                    aria-label="Percentiles"
-                    width="auto"
-                    minWidth={20}
-                    options={[0.5, 0.75, 0.9, 0.95, 0.99].map((p) => ({
-                      label: `p${Math.round(p * 100)}`,
-                      value: p,
-                      description: p === 0.9 ? 'Default' : undefined,
-                    }))}
-                    value={percentiles}
-                    onChange={(options) =>
-                      model.setExploration({ percentiles: options.length ? options.map((o) => o.value) : [0.9] })
-                    }
-                  />
-                </Field>
-              )}
-              <Field label="View" horizontal className={styles.field}>
+              <ToolbarGroup>
+                <Input
+                  prefix={<Icon name="search" />}
+                  placeholder="Search values"
+                  aria-label="Search values"
+                  width={24}
+                  value={search}
+                  onChange={(e) => model.setExploration({ search: e.currentTarget.value })}
+                />
+                {metric === 'duration' && (
+                  <Control label="Percentiles" tooltip="Default: p90">
+                    <MultiCombobox
+                      aria-label="Percentiles"
+                      width="auto"
+                      minWidth={14}
+                      options={[0.5, 0.75, 0.9, 0.95, 0.99].map((p) => ({
+                        label: `p${Math.round(p * 100)}`,
+                        value: p,
+                        description: p === 0.9 ? 'Default' : undefined,
+                      }))}
+                      value={percentiles}
+                      onChange={(options) =>
+                        model.setExploration({ percentiles: options.length ? options.map((o) => o.value) : [0.9] })
+                      }
+                    />
+                  </Control>
+                )}
                 <RadioButtonGroup
+                  aria-label="View"
                   options={(['single', 'grid', 'rows'] as Layout[]).map((value) => ({
                     value,
                     label: value[0].toUpperCase() + value.slice(1),
@@ -793,8 +796,8 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
                   value={layout}
                   onChange={(value) => model.setExploration({ layout: value })}
                 />
-              </Field>
-            </div>
+              </ToolbarGroup>
+            </Toolbar>
             {body && (
               <div className={layout === 'single' ? styles.single : undefined}>
                 <body.Component model={body} />
@@ -814,7 +817,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
             onSelect={(attribute) => model.setExploration({ comparisonBy: attribute })}
           />
           <div className={styles.content}>
-            <div className={styles.controls}>
+            <Toolbar>
               <span className={styles.muted}>
                 Attributes are ordered by the difference between the baseline and selection values for each value.
               </span>
@@ -836,7 +839,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
                   />
                 </span>
               </Tooltip>
-            </div>
+            </Toolbar>
             <p className={styles.muted}>
               Selection:{' '}
               {metric === 'duration'
@@ -968,10 +971,8 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
 
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css({ display: 'flex', flexDirection: 'column', gap: theme.spacing(1), width: '100%', flexGrow: 1 }),
-  filtersRow: css({ display: 'flex', alignItems: 'center', gap: theme.spacing(1), flexWrap: 'wrap' }),
   label: css({ fontWeight: theme.typography.fontWeightMedium }),
   filterBar: css({ flexGrow: 1, minWidth: 300 }),
-  field: css({ marginBottom: 0 }),
   metricCaption: css({ color: theme.colors.text.secondary, fontSize: theme.typography.bodySmall.fontSize }),
   red: css({
     display: 'flex',
@@ -991,13 +992,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     borderRadius: theme.shape.radius.default,
     '&:hover': { outline: `1px solid ${theme.colors.primary.border}` },
   }),
-  selectionRow: css({ display: 'flex', alignItems: 'center', gap: theme.spacing(1), flexWrap: 'wrap' }),
   selectionChip: css({ width: 12, height: 12, borderRadius: 2, background: '#FF993055', border: '1px solid #FF9930' }),
   tabsRow: css({ display: 'flex', alignItems: 'center' }),
   tabs: css({ flexGrow: 1 }),
   split: css({ display: 'flex', gap: theme.spacing(2), minHeight: 500 }),
   content: css({ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: theme.spacing(1) }),
-  controls: css({ display: 'flex', alignItems: 'center', gap: theme.spacing(1), flexWrap: 'wrap' }),
   muted: css({ color: theme.colors.text.secondary, fontSize: theme.typography.bodySmall.fontSize, margin: 0 }),
   spacer: css({ flexGrow: 1 }),
   single: css({ height: 300 }),
