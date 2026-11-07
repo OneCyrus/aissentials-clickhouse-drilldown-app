@@ -1,0 +1,12 @@
+# Grafana with the ClickHouse data source and this app (built into dist/ by `npm run dev`).
+# Add a ClickHouse data source pointing at your OpenTelemetry data, then open Drilldown.
+services:
+  grafana:
+    image: grafana/grafana:13.3.0
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./dist:/var/lib/grafana/plugins/aissentials-clickhousedrilldown-app
+      - ./docker/grafana.ini:/etc/grafana/grafana.ini
+    environment:
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource

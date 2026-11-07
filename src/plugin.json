@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "app",
+  "name": "AIssentials ClickHouse Drilldown",
+  "id": "aissentials-clickhousedrilldown-app",
+  "autoEnabled": true,
+  "info": {
+    "description": "Queryless browsing of OpenTelemetry metrics, logs and traces stored in ClickHouse",
+    "author": { "name": "AIssentials" },
+    "keywords": ["clickhouse", "opentelemetry", "drilldown", "metrics", "logs", "traces"],
+    "logos": { "small": "img/logo.svg", "large": "img/logo.svg" },
+    "links": [],
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "includes": [
+    {
+      "type": "page",
+      "name": "Metrics",
+      "path": "/a/aissentials-clickhousedrilldown-app/metrics",
+      "addToNav": true,
+      "defaultNav": true
+    },
+    { "type": "page", "name": "Logs", "path": "/a/aissentials-clickhousedrilldown-app/logs", "addToNav": true },
+    { "type": "page", "name": "Traces", "path": "/a/aissentials-clickhousedrilldown-app/traces", "addToNav": true }
+  ],
+  "extensions": {
+    "addedLinks": [
+      {
+        "targets": ["grafana/dashboard/panel/menu", "grafana/explore/toolbar/action"],
+        "title": "Open in AIssentials ClickHouse Drilldown",
+        "description": "Browse the data of this query in AIssentials ClickHouse Drilldown"
+      }
+    ]
+  },
+  "dependencies": {
+    "grafanaDependency": ">=11.6.11",
+    "plugins": [{ "id": "grafana-clickhouse-datasource", "type": "datasource", "name": "ClickHouse" }]
+  }
+}
