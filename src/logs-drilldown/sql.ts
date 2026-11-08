@@ -77,15 +77,17 @@ export const keyDisplayName = (key: string): string =>
 export const logsTable = (source: SignalSource) => tableSql(source.database, source.table);
 
 /**
- * The time-range condition of a logs query. `otel_logs` keeps its partition key and sort key on
- * `TimestampTime` (DateTime) and only stores the precise `Timestamp` (DateTime64) as a plain
- * column, so filtering on `Timestamp` reads every partition in range instead of the ones matching:
- * measured 4.4M rows / 52 ms over 24 h against 105k rows / 11 ms on `TimestampTime`. The data source
- * exposes the pair as `logs.filterTimeColumn` / `logs.timeColumn`; fall back to `Timestamp` for
- * tables without the companion column.
+ * The time-range condition of a logs query. Newer exporter versions partition and sort `otel_logs`
+ * on `TimestampTime` (DateTime) and keep the precise `Timestamp` (DateTime64) as a plain column, so
+ * a filter on `Timestamp` alone reads every partition in range: measured 4.4M rows / 52 ms over 24 h
+ * against 105k rows / 11 ms with `TimestampTime`. The data source names that column in
+ * `logs.filterTimeColumn`; when it is set, the query filters on it for pruning and still on
+ * `Timestamp`, so the range stays exact to the millisecond. The configured column must exist.
  */
 export const logsTimeFilter = (source: SignalSource): string =>
-  `$__timeFilter(${source.filterTimeColumn || 'Timestamp'})`;
+  source.filterTimeColumn && source.filterTimeColumn !== 'Timestamp'
+    ? `$__timeFilter(${source.filterTimeColumn}) AND $__timeFilter(Timestamp)`
+    : '$__timeFilter(Timestamp)';
 
 /** Rows for the logs panel: timestamp, body, level and the attributes as labels. */
 export const logLinesSql = (source: SignalSource, condition: string, limit = 1000, ascending = false): string =>

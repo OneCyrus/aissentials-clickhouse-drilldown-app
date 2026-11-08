@@ -99,6 +99,7 @@ export const getSignalSource = (uid: string, signal: SignalType): SignalSource |
     name: settings.name,
     database,
     table,
+    filterTimeColumn: signal === 'logs' ? config.logs?.filterTimeColumn?.trim() || undefined : undefined,
     metricTables: resolved?.tables ?? getConfiguredMetricTables(config.metrics),
   };
 };
