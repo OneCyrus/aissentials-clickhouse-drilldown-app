@@ -90,6 +90,7 @@ import {
   SpanRow,
   SpanTable,
   toComparison,
+  ComparisonRow,
 } from './components';
 
 type ActionView = 'breakdown' | 'comparison' | 'exceptions' | 'traceList';
@@ -360,14 +361,7 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
       case 'comparison':
         this.setState({ body: undefined, loading: true });
         try {
-          const rows = frameRows<{
-            key: string;
-            value: string;
-            selection: number;
-            baseline: number;
-            selection_total: number;
-            baseline_total: number;
-          }>(await runSql(this, comparisonSql(source, this.selectionCondition())));
+          const rows = frameRows<ComparisonRow>(await runSql(this, comparisonSql(source, this.selectionCondition())));
           if (token !== this.bodyToken) {
             return;
           }

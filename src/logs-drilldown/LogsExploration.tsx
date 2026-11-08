@@ -46,6 +46,7 @@ import {
   frameRows,
   getSignalSource,
   interpolate,
+  levelColors,
   queryRunner,
   runSql,
   SeriesSort,
@@ -703,7 +704,7 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
             ...panel.state.fieldConfig,
             defaults: {
               ...panel.state.fieldConfig.defaults,
-              color: { mode: 'fixed' as never, fixedColor: levelColorOf(value) },
+              color: { mode: 'fixed' as never, fixedColor: levelColors[value] || levelColors.unknown },
             },
           });
         }
@@ -736,16 +737,6 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     return view ? <ServiceDetails model={model} /> : <ServiceSelection model={model} />;
   };
 }
-
-const levelColorOf = (level: string) =>
-  ({
-    critical: 'semi-dark-purple',
-    fatal: 'semi-dark-purple',
-    error: 'semi-dark-red',
-    warn: 'semi-dark-orange',
-    info: 'semi-dark-blue',
-    debug: '#9e9e9e',
-  })[level] || '#8e8e8e';
 
 function ServiceSelection({ model }: SceneComponentProps<LogsExploration>) {
   const styles = useStyles2(getStyles);

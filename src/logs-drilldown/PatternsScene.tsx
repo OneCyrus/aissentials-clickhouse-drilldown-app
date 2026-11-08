@@ -10,7 +10,7 @@ import {
   sceneGraph,
 } from '@grafana/scenes';
 import { Alert, Button, Icon, IconButton, Input, LoadingPlaceholder, useStyles2, useTheme2 } from '@grafana/ui';
-import { errorMessage, Format, frameRows, levelColors, queryRunner, runSql, sqlQuery } from '../shared';
+import { errorMessage, Format, frameRows, levelColors, queryRunner, runSql, sqlQuery, tableStyle } from '../shared';
 import { ALL_FILTERS, FILTERS, LEVELS, patternSamplesSql, patternsListSql, patternsVolumeSql } from './sql';
 import { namedSeries, stackedBars } from './panels';
 import { LogsExploration } from './LogsExploration';
@@ -286,21 +286,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
   container: css({ display: 'flex', flexDirection: 'column', gap: theme.spacing(1) }),
   muted: css({ color: theme.colors.text.secondary, margin: 0 }),
   volume: css({ height: 200 }),
-  table: css({
-    width: '100%',
-    borderCollapse: 'collapse',
-    'th, td': {
-      padding: theme.spacing(0.5, 1),
-      borderBottom: `1px solid ${theme.colors.border.weak}`,
-      textAlign: 'left',
-    },
-    th: {
-      position: 'sticky',
-      top: 0,
-      background: theme.colors.background.primary,
-      fontWeight: theme.typography.fontWeightMedium,
-    },
-  }),
+  table: tableStyle(theme),
   sortable: css({ cursor: 'pointer' }),
   number: css({ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }),
   pattern: css({

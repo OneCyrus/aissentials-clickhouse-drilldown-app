@@ -1,4 +1,4 @@
-import { quoteString, SignalSource, tableSql } from '../shared';
+import { mapAttributeExpression, quoteString, SERVICE_KEY, SignalSource, tableSql } from '../shared';
 import { VAR_FILTERS } from '../constants';
 
 /**
@@ -47,7 +47,7 @@ export const primarySignals = [
 ];
 
 export const ERROR_CONDITION = "StatusCode IN ('Error', 'STATUS_CODE_ERROR')";
-export const SERVICE_KEY = 'resource.service.name';
+export { SERVICE_KEY };
 
 const intrinsics: Record<string, string> = {
   name: 'SpanName',
@@ -67,13 +67,7 @@ export const traceExpression = (key: string): string | undefined => {
   if (intrinsics[key]) {
     return intrinsics[key];
   }
-  if (key.startsWith('resource.')) {
-    return `ResourceAttributes[${quoteString(key.slice('resource.'.length))}]`;
-  }
-  if (key.startsWith('span.')) {
-    return `SpanAttributes[${quoteString(key.slice('span.'.length))}]`;
-  }
-  return undefined;
+  return mapAttributeExpression(key, { resource: 'ResourceAttributes', span: 'SpanAttributes' });
 };
 
 /** Default favorite attributes of Traces Drilldown that exist in OTel data. */

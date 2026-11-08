@@ -1,11 +1,11 @@
-import { filterConditionSql, filtersSql } from '../shared/sql';
+import { filterConditionSql, filtersSql, mapAttributeExpression } from '../shared/sql';
+import { searchMatches } from '../shared/panels';
 import {
   getMetricLabelId,
   metricPrefix,
   metricSuffix,
   nameDistance,
   parseMetricLabelId,
-  searchMatcher,
 } from '../metrics-drilldown/sql';
 import {
   levelsSql,
@@ -78,11 +78,11 @@ describe('metrics', () => {
   });
 
   it('searches with comma separated regular expressions', () => {
-    const match = searchMatcher('^http, cpu');
+    const match = searchMatches('^http, cpu');
     expect(match('http.server.duration')).toBe(true);
     expect(match('system.cpu.time')).toBe(true);
     expect(match('go_gc')).toBe(false);
-    expect(searchMatcher('(')('anything')).toBe(true);
+    expect(searchMatches('(')('anything')).toBe(true);
   });
 
   it('ranks related metrics by name similarity', () => {
@@ -179,5 +179,15 @@ describe('traces', () => {
     expect(normalizeMessage('timeout after 837ms calling 10.0.0.12 for orderId=ord-42')).toBe(
       'timeout after <num>ms calling <ip> for orderId=<id>'
     );
+  });
+});
+
+describe('mapAttributeExpression', () => {
+  it('maps a prefixed key to its Map column and leaves other keys alone', () => {
+    const columns = { resource: 'ResourceAttributes', log: 'LogAttributes' };
+    expect(mapAttributeExpression('resource.k8s.pod.name', columns)).toBe("ResourceAttributes['k8s.pod.name']");
+    expect(mapAttributeExpression("log.it's", columns)).toBe("LogAttributes['it\\'s']");
+    expect(mapAttributeExpression('span.http.route', columns)).toBeUndefined();
+    expect(mapAttributeExpression('resource', columns)).toBeUndefined();
   });
 });
