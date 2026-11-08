@@ -20,6 +20,12 @@ export interface SignalSource {
   /** The logs or traces table. */
   table: string;
   /**
+   * The column to filter the time range on when it is not the table's own time column, because the
+   * exporter partitions and sorts on a lower-precision copy (otel_logs.TimestampTime). Empty when
+   * the table has one time column.
+   */
+  filterTimeColumn?: string;
+  /**
    * The metric tables, by data point type: only the tables that exist once loadMetricsSource has
    * run, the configured names before.
    */
@@ -93,6 +99,7 @@ export const getSignalSource = (uid: string, signal: SignalType): SignalSource |
     name: settings.name,
     database,
     table,
+    filterTimeColumn: signal === 'logs' ? config.logs?.filterTimeColumn?.trim() || undefined : undefined,
     metricTables: resolved?.tables ?? getConfiguredMetricTables(config.metrics),
   };
 };
