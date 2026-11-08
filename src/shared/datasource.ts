@@ -82,9 +82,7 @@ export const getSignalSource = (uid: string, signal: SignalType): SignalSource |
     database,
     table,
     traceIndexTable:
-      signal === 'traces'
-        ? `${table}${config.traces?.traceTimestampTableSuffix?.trim() || '_trace_id_ts'}`
-        : undefined,
+      signal === 'traces' ? `${table}${config.traces?.traceTimestampTableSuffix?.trim() || '_trace_id_ts'}` : undefined,
     metricTables: resolved?.tables ?? getConfiguredMetricTables(config.metrics),
   };
 };
