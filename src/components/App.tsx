@@ -32,9 +32,9 @@ const getSceneAppFactory = (mountPath: string) => {
     factory = () =>
       new SceneApp({
         pages: [
-          page(mountPath, 'Metrics (ClickHouse)', ROUTES.Metrics, buildMetricsScene),
-          page(mountPath, 'Logs (ClickHouse)', ROUTES.Logs, buildLogsScene),
-          page(mountPath, 'Traces (ClickHouse)', ROUTES.Traces, buildTracesScene),
+          page(mountPath, 'Metrics', ROUTES.Metrics, buildMetricsScene),
+          page(mountPath, 'Logs', ROUTES.Logs, buildLogsScene),
+          page(mountPath, 'Traces', ROUTES.Traces, buildTracesScene),
         ],
         urlSyncOptions: { updateUrlOnInit: true, createBrowserHistorySteps: true },
       });
