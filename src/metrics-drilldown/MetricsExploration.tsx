@@ -254,6 +254,16 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
       if (token !== this.loadToken) {
         return;
       }
+      // Filters from the URL were turned into SQL before the table shape was known; rebuild them.
+      // A changed condition reloads through the variable's change event.
+      const variable = this.getFiltersVariable();
+      if (variable && variable.state.filters.length) {
+        const before = variable.state.filterExpression;
+        variable.updateFilters([...variable.state.filters]);
+        if (variable.state.filterExpression !== before) {
+          return;
+        }
+      }
       if (!source || !hasMetricTables(source)) {
         this.setState({
           catalog: [],

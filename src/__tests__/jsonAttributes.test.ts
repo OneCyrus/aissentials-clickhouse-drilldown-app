@@ -21,7 +21,8 @@ jest.mock('../shared/query', () => ({
 }));
 
 // Imported after the mocks.
-import { labelKeysSql, metricSql } from '../metrics-drilldown/sql';
+import { labelKeysSql, metricSql, sourceLabelExpression } from '../metrics-drilldown/sql';
+import { filtersSql } from '../shared/sql';
 import { loadMetricsSource } from '../shared/datasource';
 
 const addDataSource = (uid: string, jsonData: object, instance: object = {}) => {
@@ -117,5 +118,25 @@ describe('JSON attribute columns', () => {
     });
     // The JSON path form, not Map bracket access.
     expect(sql).toContain('`k8s`');
+  });
+
+  it('builds filter-bar conditions in the JSON form, so a missing attribute reads as empty', () => {
+    const jsonSource = { metricFeatures: { jsonAttributes: true } } as never;
+    const condition = filtersSql(
+      [{ key: 'resource.k8s.pod.name', operator: '!=', value: 'checkout-pod-1' }],
+      sourceLabelExpression(jsonSource)
+    );
+    // ifNull(...) keeps rows without the attribute, like the Map form's empty string does.
+    expect(condition).toContain(
+      "ifNull(ResourceAttributes.`k8s`.`pod`.`name`::Nullable(String), '') != 'checkout-pod-1'"
+    );
+    expect(condition).not.toContain("ResourceAttributes['k8s.pod.name']");
+  });
+
+  it('keeps the Map form for Map sources and before the shape is known', () => {
+    const filter = [{ key: 'resource.k8s.pod.name', operator: '=', value: 'a' }];
+    const map = filtersSql(filter, sourceLabelExpression({ metricFeatures: { jsonAttributes: false } } as never));
+    expect(map).toContain("ResourceAttributes['k8s.pod.name'] = 'a'");
+    expect(filtersSql(filter, sourceLabelExpression(undefined))).toBe(map);
   });
 });

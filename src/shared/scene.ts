@@ -39,8 +39,11 @@ export const dataSourceVariable = (signal: SignalType): DataSourceVariable =>
   });
 
 interface FiltersVariableOptions {
-  /** The SQL expression of a filter key, undefined for unknown keys (which are ignored). */
-  expressionOf: (key: string) => string | undefined;
+  /**
+   * The SQL expression of a filter key, undefined for unknown keys (which are ignored). It gets the
+   * filter variable, so the expression can depend on the selected data source's table shape.
+   */
+  expressionOf: (key: string, variable: AdHocFiltersVariable) => string | undefined;
   getKeys: (variable: AdHocFiltersVariable) => Promise<Array<{ text: string; value: string; group?: string }>>;
   getValues: (variable: AdHocFiltersVariable, key: string) => Promise<string[]>;
   placeholder: string;
@@ -52,8 +55,8 @@ interface FiltersVariableOptions {
  * The filter bar. It interpolates to an SQL condition (all filters ANDed), so queries use it as
  * `WHERE ... AND ${filters}`.
  */
-export const filtersVariable = (options: FiltersVariableOptions): AdHocFiltersVariable =>
-  new AdHocFiltersVariable({
+export const filtersVariable = (options: FiltersVariableOptions): AdHocFiltersVariable => {
+  const variable: AdHocFiltersVariable = new AdHocFiltersVariable({
     name: options.name || VAR_FILTERS,
     label: options.label || 'Filters',
     datasource: datasourceRef,
@@ -64,13 +67,15 @@ export const filtersVariable = (options: FiltersVariableOptions): AdHocFiltersVa
     hide: VariableHide.hideLabel,
     addFilterButtonText: options.placeholder,
     inputPlaceholder: options.placeholder,
-    expressionBuilder: (filters) => filtersSql(filters as FilterLike[], options.expressionOf),
+    expressionBuilder: (filters) => filtersSql(filters as FilterLike[], (key) => options.expressionOf(key, variable)),
     getTagKeysProvider: async (variable) => ({ replace: true, values: await options.getKeys(variable) }),
     getTagValuesProvider: async (variable, filter) => ({
       replace: true,
       values: (await options.getValues(variable, filter.key)).map((value) => ({ text: value, value })),
     }),
   });
+  return variable;
+};
 
 /** The SQL condition of all filters except those on one key, for value suggestions of that key. */
 export const otherFiltersSql = (

@@ -213,7 +213,7 @@ export const loadMetricsSource = async (sceneObject: SceneObject, uid: string): 
             ).map((row) => ({ name: String(row.name), type: String(row.type) }))
           ).jsonAttributes;
         } catch {
-          // Detection is an optimization: a Map-shaped default still queries Map tables correctly.
+          // Without the column types the Map form stays: correct for Map tables, as before detection.
         }
       }
       const result = { database, tables, features };

@@ -35,11 +35,20 @@ export const parseMetricLabelId = (id: string): MetricLabel | undefined => {
   return metricColumnLabels.find((label) => label.key === id);
 };
 
-/** Filter keys are label ids such as `resource.k8s.pod.name`. */
-export const metricLabelExpression = (key: string): string | undefined => {
+/**
+ * Filter keys are label ids such as `resource.k8s.pod.name`. Attribute columns are read as JSON
+ * when the exporter writes them that way (`jsonAttributes`), as Map otherwise.
+ */
+export const metricLabelExpression = (key: string, jsonAttributes = false): string | undefined => {
   const label = parseMetricLabelId(key);
-  return label ? getMetricLabelExpression(label) : undefined;
+  return label ? getMetricLabelExpression(label, jsonAttributes) : undefined;
 };
+
+/** The filter expression of a key for a resolved metrics source. */
+export const sourceLabelExpression =
+  (source: SignalSource | undefined) =>
+  (key: string): string | undefined =>
+    metricLabelExpression(key, source?.metricFeatures?.jsonAttributes ?? false);
 
 const tablesOf = (source: SignalSource, entry?: Pick<MetricCatalogEntry, 'type'>): Array<[MetricType, string]> =>
   metricTypes
