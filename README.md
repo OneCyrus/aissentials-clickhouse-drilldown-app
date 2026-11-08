@@ -93,18 +93,29 @@ docker run -p 3000:3000 \
   grafana/grafana
 ```
 
-### Show it under Drilldown
+### Show the pages in the Drilldown menu
 
-To list the app in Grafana's **Drilldown** menu section instead of **Apps**:
+By default the app appears under **Apps** as **AIssentials ClickHouse Drilldown**, with **Metrics (ClickHouse)**, **Logs (ClickHouse)** and **Traces (ClickHouse)** below it. To list the three pages directly in Grafana's **Drilldown** menu section, add to `grafana.ini`:
+
+```ini
+[navigation.app_standalone_pages]
+/a/aissentials-clickhousedrilldown-app/metrics = drilldown
+/a/aissentials-clickhousedrilldown-app/logs = drilldown
+/a/aissentials-clickhousedrilldown-app/traces = drilldown
+```
+
+Or, to keep them grouped under **AIssentials ClickHouse Drilldown** inside the Drilldown section:
 
 ```ini
 [navigation.app_sections]
 aissentials-clickhousedrilldown-app = drilldown
 ```
 
-### Preview builds
+With Docker, mount a `grafana.ini` with these settings (for example to `/etc/grafana/grafana.ini`).
 
-The [preview](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/tag/preview) pre-release holds the latest, not yet released state, with versions such as `0.1.1-preview.42`. Use official releases for production.
+### Versions
+
+Every change to `main` is released as a new patch version. The [latest release](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/latest) is always the current state; its notes list the changes.
 
 ## Configuration
 

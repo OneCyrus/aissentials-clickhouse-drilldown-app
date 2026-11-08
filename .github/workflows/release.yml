@@ -1,11 +1,9 @@
-# Releases an official version when a tag vX.Y.Z is pushed: the version comes from the tag, the
-# archive is signed when the GRAFANA_ACCESS_POLICY_TOKEN secret is set, and a GitHub release is
-# created with the archive, its checksums and the tag's CHANGELOG.md section as notes.
+# Builds and publishes a release: the archive (signed when the GRAFANA_ACCESS_POLICY_TOKEN secret is
+# set), its checksums and build provenance, as the latest GitHub release.
 #
-#   git tag v1.2.3 && git push origin v1.2.3
-#
-# Or run it from the Actions tab (Run workflow) with a version: it releases the selected branch's
-# latest commit and creates the tag vX.Y.Z there.
+# - Every push to main releases the next patch version (called from ci.yml after the checks).
+# - Run it from the Actions tab with a version, e.g. 0.2.0, for a minor or major version.
+# - Pushing a tag vX.Y.Z releases that tag.
 name: Release
 
 on:
@@ -14,22 +12,26 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to release, e.g. 1.2.3 (creates the tag v1.2.3)
-        required: true
+        description: Version to release, e.g. 0.2.0 (creates the tag v0.2.0). Empty for the next patch version.
+        required: false
+  workflow_call:
 
 permissions:
   contents: write
   id-token: write
   attestations: write
 
-concurrency:
-  group: release-${{ github.ref }}
-
 jobs:
   release:
     runs-on: ubuntu-latest
+    # One release at a time, so two pushes never get the same version.
+    concurrency:
+      group: release
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         with:
@@ -37,28 +39,49 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm run test:ci
 
-      - name: Set version from the tag
+      - name: Determine the version
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            version="${INPUT_VERSION#v}"
-            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::Version must look like 1.2.3, got '$INPUT_VERSION'."; exit 1
-            fi
-            if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
-              echo "::error::Tag v$version already exists."; exit 1
-            fi
-          else
+          git fetch --tags --force
+          releases=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          latest=$(head -1 <<< "$releases")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
+            create_tag=false
+          elif [ -n "$INPUT_VERSION" ]; then
+            version="${INPUT_VERSION#v}"
+            create_tag=true
+          elif [ -n "$latest" ]; then
+            IFS=. read -r major minor patch <<< "${latest#v}"
+            version="$major.$minor.$((patch + 1))"
+            create_tag=true
+          else
+            version=$(node -p "require('./package.json').version")
+            create_tag=true
           fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must look like 1.2.3, got '$version'."; exit 1
+          fi
+          if [ "$create_tag" = true ] && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "::error::Tag v$version already exists."; exit 1
+          fi
+          # The highest release below this version, for the release notes.
+          previous=""
+          for tag in $releases; do
+            if [ "${tag#v}" != "$version" ] && [ "$(printf '%s\n%s\n' "${tag#v}" "$version" | sort -V | head -1)" = "${tag#v}" ]; then
+              previous=$tag; break
+            fi
+          done
           npm version "$version" --no-git-tag-version --allow-same-version
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "create_tag=$create_tag"
+            echo "previous=$previous"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $version (previous release: ${previous:-none})"
 
       - run: npm run build
 
@@ -84,14 +107,27 @@ jobs:
         with:
           subject-path: ${{ steps.package.outputs.archive }}
 
-      - name: Release notes from CHANGELOG.md
+      - name: Release notes
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
+          COMPARE_URL: ${{ github.server_url }}/${{ github.repository }}/compare
         run: |
+          # The version's CHANGELOG.md section, if there is one, then the commits since the previous release.
           awk -v v="$VERSION" '
-            $0 ~ "^## " { if (found) exit; found = ($2 == v || $2 == "v" v) ; next }
+            $0 ~ "^## " { if (found) exit; found = ($2 == v || $2 == "v" v); next }
             found { print }
           ' CHANGELOG.md > notes.md
+          if [ -n "$PREVIOUS" ]; then
+            {
+              echo
+              echo "### Changes since $PREVIOUS"
+              echo
+              git log --no-merges --pretty='- %s (%h)' "$PREVIOUS..HEAD"
+              echo
+              echo "**Full changelog:** $COMPARE_URL/$PREVIOUS...v$VERSION"
+            } >> notes.md
+          fi
           if [ ! -s notes.md ]; then echo "Version $VERSION." > notes.md; fi
           cat notes.md
 
@@ -100,25 +136,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.version.outputs.version }}
+          CREATE_TAG: ${{ steps.version.outputs.create_tag }}
         run: |
-          # A manual run creates the tag on the released commit; a tag push already has it.
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+          if [ "$CREATE_TAG" = true ]; then
             tag_args=(--target "$GITHUB_SHA")
           else
             tag_args=(--verify-tag)
           fi
-          # GitHub's generated notes (pull requests and a compare link) start at the previous
-          # release; without one, only the changelog section is used. The preview tag is skipped.
-          previous=$(git ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/##' \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "v$VERSION" | sort -V \
-            | awk -v v="v$VERSION" '{ split($0, a, /[v.]/); split(v, b, /[v.]/);
-                if (a[2] < b[2] || (a[2] == b[2] && (a[3] < b[3] || (a[3] == b[3] && a[4] < b[4])))) last = $0 }
-                END { print last }') || true
-          notes_args=()
-          if [ -n "$previous" ]; then notes_args=(--generate-notes --notes-start-tag "$previous"); fi
           gh release create "v$VERSION" artifacts/* \
             "${tag_args[@]}" \
-            "${notes_args[@]}" \
             --title "v$VERSION" \
             --notes-file notes.md \
             --latest
+          # Earlier versions of this pipeline kept a rolling "preview" pre-release; it is no longer used.
+          gh release delete preview --cleanup-tag --yes 2>/dev/null || true
