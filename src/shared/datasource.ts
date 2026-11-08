@@ -1,9 +1,9 @@
 import { DataSourceInstanceSettings } from '@grafana/data';
 import { getDataSourceSrv } from '@grafana/runtime';
-import { SceneObject } from '@grafana/scenes';
+import { SceneObject, VariableValueOption } from '@grafana/scenes';
 import { getConfiguredMetricTables, MetricTables, resolveMetricTables } from 'clickhouse/metrics';
 import { CHConfig, MetricType, SignalType } from 'clickhouse/types';
-import { CLICKHOUSE_DS_TYPE } from '../constants';
+import { CLICKHOUSE_DS_TYPES } from '../constants';
 import { Format, frameRows, runSql } from './query';
 
 /**
@@ -13,6 +13,8 @@ import { Format, frameRows, runSql } from './query';
  */
 export interface SignalSource {
   uid: string;
+  /** The plugin id of the data source: a fork serves the same SQL under its own id. */
+  type: string;
   name: string;
   database: string;
   /** The logs or traces table. */
@@ -33,9 +35,23 @@ const defaultTables: Record<Exclude<SignalType, 'metrics'>, string> = {
 const jsonData = (settings: DataSourceInstanceSettings): Partial<CHConfig> =>
   (settings.jsonData || {}) as Partial<CHConfig>;
 
+/** Whether a data source belongs to one of the accepted ClickHouse plugin ids. */
+export const isClickHouseDataSource = (type: string | undefined): boolean =>
+  Boolean(type) && CLICKHOUSE_DS_TYPES.includes(type!);
+
 /** ClickHouse data sources, those set up for the signal (single-source mode) first. */
 export const getClickHouseDataSources = (signal?: SignalType): DataSourceInstanceSettings[] => {
-  const all = getDataSourceSrv().getList({ type: CLICKHOUSE_DS_TYPE });
+  // getList takes one plugin id, so ask per id: a fork has its own id and would otherwise
+  // be invisible to the app. getList also returns Grafana's built-in data source, so keep only
+  // ClickHouse data sources, each once.
+  const seen = new Set<string>();
+  const all = CLICKHOUSE_DS_TYPES.flatMap((type) => getDataSourceSrv().getList({ type })).filter((settings) => {
+    if (!isClickHouseDataSource(settings.type) || seen.has(settings.uid)) {
+      return false;
+    }
+    seen.add(settings.uid);
+    return true;
+  });
   if (!signal) {
     return all;
   }
@@ -58,7 +74,7 @@ export const getDefaultDataSourceUid = (signal: SignalType): string | undefined 
 
 export const getSignalSource = (uid: string, signal: SignalType): SignalSource | undefined => {
   const settings = getDataSourceSrv().getInstanceSettings(uid);
-  if (!settings || settings.type !== CLICKHOUSE_DS_TYPE) {
+  if (!settings || !isClickHouseDataSource(settings.type)) {
     return undefined;
   }
   const config = jsonData(settings);
@@ -73,6 +89,7 @@ export const getSignalSource = (uid: string, signal: SignalType): SignalSource |
         : '';
   return {
     uid: settings.uid,
+    type: settings.type,
     name: settings.name,
     database,
     table,
@@ -137,3 +154,11 @@ export const hasMetricTables = (source: SignalSource): boolean => Object.values(
 /** The table of a metric type: the resolved one, or the configured name before resolution. */
 export const metricTableOf = (source: SignalSource, type: MetricType): string =>
   source.metricTables[type] ?? getConfiguredMetricTables()[type];
+
+/**
+ * The data source options of every accepted ClickHouse plugin id, as the data source variable
+ * shows them. DataSourceVariable takes a single pluginId, so this is what lets a fork's data
+ * sources appear next to the catalog ones.
+ */
+export const getDataSourceOptions = (): VariableValueOption[] =>
+  getClickHouseDataSources().map((settings) => ({ label: settings.name, value: settings.uid }));

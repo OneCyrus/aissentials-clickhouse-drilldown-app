@@ -12,13 +12,26 @@ import {
   VariableValueSelectors,
 } from '@grafana/scenes';
 import { VariableHide } from '@grafana/schema';
+import { of } from 'rxjs';
 import { SignalType } from 'clickhouse/types';
 import { CLICKHOUSE_DS_TYPE, VAR_DATASOURCE, VAR_FILTERS } from '../constants';
-import { getDefaultDataSourceUid } from './datasource';
+import { getDataSourceOptions, getDefaultDataSourceUid } from './datasource';
 import { datasourceRef, FilterLike, filtersSql } from './index';
 
+/**
+ * The data source picker. DataSourceVariable lists one plugin id, so its options are replaced with
+ * every accepted ClickHouse plugin id: a fork installed under its own id serves the same SQL and
+ * must be selectable, and Grafana routes a query by uid regardless of the type declared with it.
+ */
+class ClickHouseDataSourceVariable extends DataSourceVariable {
+  getValueOptions(args: Parameters<DataSourceVariable['getValueOptions']>[0]) {
+    void args;
+    return of(getDataSourceOptions());
+  }
+}
+
 export const dataSourceVariable = (signal: SignalType): DataSourceVariable =>
-  new DataSourceVariable({
+  new ClickHouseDataSourceVariable({
     name: VAR_DATASOURCE,
     label: 'Data source',
     pluginId: CLICKHOUSE_DS_TYPE,
