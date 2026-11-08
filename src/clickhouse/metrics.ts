@@ -29,7 +29,7 @@ import {
 import { buildJSONPathAccess, escapeCHStringLiteral, escapeIdentifier, getTableIdentifier } from './sql';
 
 /** Default table names of the OpenTelemetry Collector ClickHouse exporter. */
-export const defaultMetricsTables = {
+const defaultMetricsTables = {
   gaugeTable: 'otel_metrics_gauge',
   sumTable: 'otel_metrics_sum',
   histogramTable: 'otel_metrics_histogram',
@@ -38,7 +38,7 @@ export const defaultMetricsTables = {
 } as const;
 
 /** The exponential histogram table name used by exporter versions before `metrics_tables`. */
-export const legacyExponentialHistogramTable = 'otel_metrics_exponential_histogram';
+const legacyExponentialHistogramTable = 'otel_metrics_exponential_histogram';
 
 /** What a metrics query reads: the table of the metric's type and the query itself. */
 export interface MetricQueryOptions {
@@ -115,7 +115,7 @@ export const resolveMetricTables = (
 export const quoteString = (value: string): string => `'${escapeCHStringLiteral(value)}'`;
 
 /** The time column shared by every metric table. */
-export const metricTimeColumn = 'TimeUnix';
+const metricTimeColumn = 'TimeUnix';
 const timeRangeCondition = `${metricTimeColumn} >= $__fromTime AND ${metricTimeColumn} <= $__toTime`;
 
 /**
@@ -206,10 +206,6 @@ const getSeriesKeyExpression = (features: MetricTableFeatures = {}): string => {
   return `cityHash64(${wrap('ResourceAttributes')}, ScopeName, ${wrap('ScopeAttributes')}, ${wrap('Attributes')})`;
 };
 
-/** Whether a metric type and monotonicity behave like a counter. */
-export const isCounterMetric = (type: MetricType, isMonotonic?: boolean): boolean =>
-  type === MetricType.Sum && Boolean(isMonotonic);
-
 /** The functions that apply to a metric, the default first. */
 export const getMetricFunctions = (type: MetricType, isMonotonic?: boolean): MetricFunction[] => {
   switch (type) {
@@ -292,8 +288,6 @@ export const getDefaultSeriesAggregation = (type: MetricType, fn: MetricFunction
       return MetricSeriesAggregation.Avg;
   }
 };
-
-export const defaultQuantiles: readonly number[] = [0.5, 0.9, 0.95, 0.99];
 
 /**
  * A metric query for a newly picked metric. It keeps the group by of the previous metric (and its
@@ -435,7 +429,7 @@ const generateValueQuery = (options: MetricQueryOptions, metric: MetricQuery): s
 };
 
 /** The time bucket of a point: the dashboard interval, but never shorter than the metric's minStep. */
-export const timeBucketExpression = (metric: MetricQuery, time: string = metricTimeColumn): string =>
+const timeBucketExpression = (metric: MetricQuery, time: string = metricTimeColumn): string =>
   metric.minStep && metric.minStep > 0
     ? `toStartOfInterval(toDateTime(${time}), INTERVAL greatest($__interval_s, ${Math.round(metric.minStep)}) second)`
     : `$__timeInterval(${time})`;

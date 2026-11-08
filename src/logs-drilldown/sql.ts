@@ -14,9 +14,9 @@ export const VAR_FIELDS = 'fields';
 export const VAR_LINE_FILTERS = 'lineFilters';
 export const VAR_PATTERNS = 'patterns';
 export const LEVELS = `\${${VAR_LEVELS}}`;
-export const FIELDS = `\${${VAR_FIELDS}}`;
-export const LINE_FILTERS = `\${${VAR_LINE_FILTERS}}`;
-export const PATTERNS = `\${${VAR_PATTERNS}}`;
+const FIELDS = `\${${VAR_FIELDS}}`;
+const LINE_FILTERS = `\${${VAR_LINE_FILTERS}}`;
+const PATTERNS = `\${${VAR_PATTERNS}}`;
 
 /** Every condition of the filter header, ANDed. */
 export const ALL_FILTERS = `${FILTERS} AND ${LEVELS} AND ${FIELDS} AND ${LINE_FILTERS} AND ${PATTERNS}`;
@@ -24,7 +24,7 @@ export const ALL_FILTERS = `${FILTERS} AND ${LEVELS} AND ${FIELDS} AND ${LINE_FI
 export const SERVICE_KEY = 'resource.service.name';
 
 /** The level of a log line: SeverityText lower-cased and normalized, `unknown` when empty. */
-export const levelExpression =
+const levelExpression =
   "multiIf(SeverityText = '', if(SeverityNumber = 0, 'unknown', " +
   "multiIf(SeverityNumber <= 4, 'trace', SeverityNumber <= 8, 'debug', SeverityNumber <= 12, 'info', " +
   "SeverityNumber <= 16, 'warn', SeverityNumber <= 20, 'error', 'fatal')), " +
@@ -74,7 +74,7 @@ export const logsExpression = (key: string): string | undefined => {
 export const keyDisplayName = (key: string): string =>
   key === SERVICE_KEY ? 'service' : key.replace(/^(resource|log)\./, '');
 
-export const logsTable = (source: SignalSource) => tableSql(source.database, source.table);
+const logsTable = (source: SignalSource) => tableSql(source.database, source.table);
 
 /**
  * The time-range condition of a logs query. Newer exporter versions partition and sort `otel_logs`

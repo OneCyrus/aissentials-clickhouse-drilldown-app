@@ -15,7 +15,7 @@ export const colorAt = (index: number) => palette[index % palette.length];
 const isRate = (query: MetricQuery) => query.fn === MetricFunction.Rate || query.fn === MetricFunction.SumRate;
 
 /** The unit of a metric query's values. */
-export const queryUnit = (entry: MetricCatalogEntry, query: MetricQuery): string | undefined => {
+const queryUnit = (entry: MetricCatalogEntry, query: MetricQuery): string | undefined => {
   if (query.fn === MetricFunction.Rate || query.fn === MetricFunction.Increase) {
     // Counting observations (histograms) or a counter of its own unit.
     return entry.type === MetricType.Sum ? grafanaUnit(entry.unit, isRate(query)) : isRate(query) ? 'reqps' : 'short';

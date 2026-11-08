@@ -39,7 +39,7 @@ export const parseMetricLabelId = (id: string): MetricLabel | undefined => {
  * Filter keys are label ids such as `resource.k8s.pod.name`. Attribute columns are read as JSON
  * when the exporter writes them that way (`jsonAttributes`), as Map otherwise.
  */
-export const metricLabelExpression = (key: string, jsonAttributes = false): string | undefined => {
+const metricLabelExpression = (key: string, jsonAttributes = false): string | undefined => {
   const label = parseMetricLabelId(key);
   return label ? getMetricLabelExpression(label, jsonAttributes) : undefined;
 };
@@ -107,8 +107,6 @@ export const toMetricLabels = (rows: Array<{ source: string; key: string }>): Me
   ...metricColumnLabels,
   ...rows.map((row) => ({ source: row.source as MetricLabel['source'], key: row.key })),
 ];
-
-export const labelDisplayName = (label: MetricLabel): string => label.key;
 
 /**
  * The query a metric starts with: the editor's defaults (rate for counters, last for up-down

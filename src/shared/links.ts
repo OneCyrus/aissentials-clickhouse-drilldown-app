@@ -1,5 +1,5 @@
 import { SceneObject, sceneGraph } from '@grafana/scenes';
-import { config, locationService } from '@grafana/runtime';
+import { config } from '@grafana/runtime';
 import { CLICKHOUSE_DS_TYPE, VAR_DATASOURCE } from '../constants';
 import { interpolate } from './query';
 
@@ -21,14 +21,6 @@ export const exploreUrl = (sceneObject: SceneObject, queries: object[]): string 
   return `${config.appSubUrl ?? ''}/explore?schemaVersion=1&orgId=${config.bootData?.user?.orgId ?? 1}&panes=${encodeURIComponent(
     JSON.stringify(panes)
   )}`;
-};
-
-export const openUrl = (url: string, newTab = false) => {
-  if (newTab) {
-    window.open(url, '_blank');
-  } else {
-    locationService.push(url.replace(config.appSubUrl ?? '', ''));
-  }
 };
 
 export const copyCurrentUrl = async (): Promise<void> => {

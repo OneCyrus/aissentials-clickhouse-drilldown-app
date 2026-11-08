@@ -13,7 +13,7 @@ import {
   useTheme2,
 } from '@grafana/ui';
 import { store } from '../shared';
-import { defaultFavorites, normalizeMessage, SERVICE_KEY } from './sql';
+import { defaultFavorites, normalizeMessage } from './sql';
 
 const FAVORITES_KEY = 'traces.favorites.attributes';
 export const ALL = 'All';
@@ -425,8 +425,6 @@ export function SpanTable({
 
 export const formatDuration = (ms: number): string =>
   ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : ms >= 1 ? `${ms.toFixed(1)} ms` : `${(ms * 1000).toFixed(0)} µs`;
-
-export const isFavoriteDefault = (attribute: string) => attribute === SERVICE_KEY;
 
 const getStyles = (theme: GrafanaTheme2) => ({
   sidebar: css({

@@ -1,5 +1,5 @@
 import React from 'react';
-import { DataFrame, FieldType, PanelData } from '@grafana/data';
+import { DataFrame, FieldType } from '@grafana/data';
 import { CustomTransformOperator, SceneDataTransformer, SceneQueryRunner } from '@grafana/scenes';
 import { Button } from '@grafana/ui';
 import { map } from 'rxjs';
@@ -119,7 +119,7 @@ export const seriesName = (frame: DataFrame): string => {
  * Splits wide time series frames into one frame per series, sorted and filtered, so a
  * SceneByFrameRepeater can show one panel per label value.
  */
-export const splitSeries =
+const splitSeries =
   (sort: () => SeriesSort, search: () => string, limit = 500): CustomTransformOperator =>
   () =>
   (source) =>
@@ -148,10 +148,6 @@ export const splitSeriesData = (
   search: () => string,
   limit?: number
 ) => new SceneDataTransformer({ $data: runner, transformations: [splitSeries(sort, search, limit)] });
-
-/** Whether any series has data, for empty states. */
-export const hasSeries = (data?: PanelData): boolean =>
-  Boolean(data?.series.some((frame) => frame.length > 0 && frame.fields.some((f) => f.type === FieldType.number)));
 
 /** Grafana units for OTel units (UCUM), per second for rates. */
 export const grafanaUnit = (unit: string | undefined, perSecond = false): string | undefined => {
