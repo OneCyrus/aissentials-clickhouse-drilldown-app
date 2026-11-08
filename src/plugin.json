@@ -28,13 +28,22 @@
   "includes": [
     {
       "type": "page",
-      "name": "Metrics",
+      "name": "Metrics (ClickHouse)",
       "path": "/a/aissentials-clickhousedrilldown-app/metrics",
-      "addToNav": true,
-      "defaultNav": true
+      "addToNav": true
     },
-    { "type": "page", "name": "Logs", "path": "/a/aissentials-clickhousedrilldown-app/logs", "addToNav": true },
-    { "type": "page", "name": "Traces", "path": "/a/aissentials-clickhousedrilldown-app/traces", "addToNav": true }
+    {
+      "type": "page",
+      "name": "Logs (ClickHouse)",
+      "path": "/a/aissentials-clickhousedrilldown-app/logs",
+      "addToNav": true
+    },
+    {
+      "type": "page",
+      "name": "Traces (ClickHouse)",
+      "path": "/a/aissentials-clickhousedrilldown-app/traces",
+      "addToNav": true
+    }
   ],
   "extensions": {
     "addedLinks": [
