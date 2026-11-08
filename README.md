@@ -7,7 +7,7 @@
 
 **Explore OpenTelemetry metrics, logs and traces in ClickHouse without writing a single query.**
 
-AIssentials ClickHouse Drilldown is a Grafana app plugin that brings the experience of Grafana's Metrics, Logs and Traces Drilldown apps to OpenTelemetry data stored in ClickHouse. Point it at the tables of the [OpenTelemetry Collector ClickHouse exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/clickhouseexporter), pick a metric, a service or a span set, and narrow it down by clicking: every chart, breakdown and filter is generated SQL that runs through the official ClickHouse data source.
+AIssentials ClickHouse Drilldown is a Grafana app for OpenTelemetry data stored in ClickHouse by the [OpenTelemetry Collector ClickHouse exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/clickhouseexporter). Pick a metric, a service or a span set and narrow it down by clicking: every chart, breakdown and filter is a query that runs through the ClickHouse data source, with its connection and permissions.
 
 ![Metrics overview](src/img/screenshots/metrics-overview.png)
 
@@ -50,21 +50,41 @@ Panels on dashboards and Explore queries of the ClickHouse data source get an **
 
 ## Requirements
 
-- Grafana **11.6.11 or later**, the same lower bound as Grafana's own Drilldown apps. Tested with Grafana 13.3.
-- The [ClickHouse data source](https://grafana.com/grafana/plugins/grafana-clickhouse-datasource/) connected to your OpenTelemetry data.
-- Tables in the layout of the OpenTelemetry Collector ClickHouse exporter: `otel_metrics_*`, `otel_logs` and `otel_traces`, with Map attributes.
+- Grafana **11.6.11 or later**.
+- The **[ClickHouse data source plugin](https://grafana.com/grafana/plugins/grafana-clickhouse-datasource/)** (`grafana-clickhouse-datasource`) 4.0 or later, with a data source connected to your ClickHouse server. The app reads all data through it.
+- OpenTelemetry data in the table layout of the OpenTelemetry Collector ClickHouse exporter: `otel_metrics_*`, `otel_logs` and `otel_traces`.
 
 ## Installation
 
-Download the latest archive from the [releases page](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/latest) and install it with the Grafana CLI:
+1. Install the ClickHouse data source plugin, if it is not installed yet:
 
-```bash
-grafana cli \
-  --pluginUrl https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/download/v0.1.0/aissentials-clickhousedrilldown-app-0.1.0.zip \
-  plugins install aissentials-clickhousedrilldown-app
-```
+   ```bash
+   grafana cli plugins install grafana-clickhouse-datasource
+   ```
 
-or, with the Grafana Docker image (Grafana 12 or later):
+2. Install the app from the [latest release](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/latest):
+
+   ```bash
+   grafana cli \
+     --pluginUrl https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/download/v0.1.0/aissentials-clickhousedrilldown-app-0.1.0.zip \
+     plugins install aissentials-clickhousedrilldown-app
+   ```
+
+   Or download the ZIP and unzip it into Grafana's plugin directory.
+
+3. The app is not signed yet. Allow it in `grafana.ini`:
+
+   ```ini
+   [plugins]
+   allow_loading_unsigned_plugins = aissentials-clickhousedrilldown-app
+   ```
+
+4. Restart Grafana.
+5. Add a ClickHouse data source under **Connections → Data sources** (see [Configuration](#configuration)), then open **Apps → AIssentials ClickHouse Drilldown**.
+
+### Docker
+
+With the Grafana Docker image (Grafana 12 or later), both plugins are installed at startup:
 
 ```bash
 docker run -p 3000:3000 \
@@ -73,85 +93,29 @@ docker run -p 3000:3000 \
   grafana/grafana
 ```
 
-You can also unzip the archive into Grafana's plugin directory and restart Grafana.
+### Show it under Drilldown
 
-Until the plugin is signed, allow it in `grafana.ini`:
-
-```ini
-[plugins]
-allow_loading_unsigned_plugins = aissentials-clickhousedrilldown-app
-```
-
-The app is enabled after installation and appears under **Apps**. To list it in Grafana's **Drilldown** menu section next to Grafana's own apps:
+To list the app in Grafana's **Drilldown** menu section instead of **Apps**:
 
 ```ini
 [navigation.app_sections]
 aissentials-clickhousedrilldown-app = drilldown
 ```
 
-### Versions
+### Preview builds
 
-| Channel  | Where                                                                                                                                               | Version            |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| Official | [Releases](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/latest), one per tag                                           | `1.2.3`            |
-| Preview  | The [preview](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/tag/preview) pre-release, rebuilt on every commit to `main` | `1.2.4-preview.42` |
-
-Preview builds are for trying out changes before a release; they are never signed.
+The [preview](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/tag/preview) pre-release holds the latest, not yet released state, with versions such as `0.1.1-preview.42`. Use official releases for production.
 
 ## Configuration
 
-The app reads the database and table names from the ClickHouse data source settings:
+The app finds the tables through the ClickHouse data source settings:
 
-- **Logs and traces** use the data source's logs and traces defaults. Use one data source with both defaults set, or a data source per signal.
-- **Metrics** work with any ClickHouse data source. With a data source version that supports OTel metrics, the metric tables are configurable and **Explore** opens metrics in its metrics query editor. Otherwise the exporter's default tables in the configured database (or `otel`) are used.
+- **Database:** the default database of the data source's logs or traces settings, else the data source's default database, else `otel`, the exporter's default.
+- **Logs and traces tables:** the default tables of the data source's **Logs configuration** and **Traces configuration**, else the exporter's `otel_logs` and `otel_traces`.
+- **Metrics tables:** the exporter's `otel_metrics_gauge`, `otel_metrics_sum`, `otel_metrics_histogram`, `otel_metrics_exp_histogram` (or the older `otel_metrics_exponential_histogram`) and `otel_metrics_summary`.
 
-Each app has a data source picker; the choice is kept in the URL, so links can be shared.
-
-## How it works
-
-- Each app is a [Grafana Scenes](https://grafana.com/developers/scenes) app. Queries are raw SQL queries of the ClickHouse data source, so its connection, permissions, macros (`$__timeFilter`, `$__timeInterval`, `$__interval_s`) and result formats apply.
-- Filters are built from attribute keys such as `resource.k8s.pod.name`, `span.http.route` or `log.user.id` and turn into SQL conditions on the Map columns.
-- Metrics queries come from `src/clickhouse/metrics.ts`, derived from the ClickHouse data source's OTel metrics support: rates with counter resets and both temporalities, histogram quantiles and heatmaps, so they match its query editor.
-
-### Differences from Grafana's Drilldown apps
-
-- The duration comparison selection defaults to the slowest quarter of the duration buckets, with a threshold list instead of dragging on the heatmap.
-- "Outlying series" sorting ranks by distance from the mean series instead of a WebAssembly outlier detector.
-- Not included: the Structure tabs of Traces Drilldown, bookmarks, saved searches, the JSON log view, Add to dashboard and Create alert, the time seeker and exemplars.
-- Filter keys and URLs use OTel attribute names (`resource.service.name`) instead of Prometheus and Loki label names.
-
-## Development
-
-```bash
-npm install
-npm run dev          # build in watch mode into dist/
-npm run build        # production build
-npm run typecheck
-npm run lint
-npm run test:ci
-```
-
-`docker compose up` starts Grafana 13.3 with the ClickHouse data source installed and `dist/` mounted as the app; add a ClickHouse data source for your OpenTelemetry data there.
-
-The build is the standard [create-plugin](https://grafana.com/developers/plugin-tools/) setup (`.config/`), extended in `webpack.config.ts` for the Scenes library: `react-router-dom` maps to Grafana's `react-router` module and `react/jsx-runtime` comes from Grafana.
-
-### Continuous integration and releases
-
-- **CI** (`.github/workflows/ci.yml`) runs type checks, lint, formatting, spelling, tests and the build on every pull request and every push to `main`.
-- **Preview builds:** every push to `main` publishes the archive as a workflow artifact and replaces the `preview` pre-release. The version is the next patch after the latest release with `-preview.<run number>`.
-- **Releases** (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` builds that version, signs it when the `GRAFANA_ACCESS_POLICY_TOKEN` secret is set, attests the build provenance (public repositories) and creates a GitHub release with the archive, its SHA-1 and SHA-256 checksums and the version's section of `CHANGELOG.md` as notes.
-
-To release a version:
-
-```bash
-# 1. Add a "## 1.2.3" section to CHANGELOG.md and commit it to main.
-# 2. Tag and push:
-git tag v1.2.3
-git push origin v1.2.3
-```
-
-The version comes from the tag; `package.json` does not need to change. Instead of pushing a tag, you can also run the **Release** workflow from the Actions tab with the version: it creates the tag on the latest commit of `main`.
+So a data source with the exporter's defaults works without further settings. Each page has a data source picker; the choice is kept in the URL, so links can be shared.
 
 ## License
 
-Apache License 2.0. `src/clickhouse/` is derived from [grafana/clickhouse-datasource](https://github.com/grafana/clickhouse-datasource) (Apache License 2.0).
+Apache License 2.0. Parts of the query generation are derived from [grafana/clickhouse-datasource](https://github.com/grafana/clickhouse-datasource) (Apache License 2.0).
