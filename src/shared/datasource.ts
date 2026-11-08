@@ -5,6 +5,7 @@ import { getConfiguredMetricTables, MetricTables, resolveMetricTables } from 'cl
 import { CHConfig, MetricType, SignalType } from 'clickhouse/types';
 import { CLICKHOUSE_DS_TYPES } from '../constants';
 import { Format, frameRows, runSql } from './query';
+import { tableSql } from './sql';
 
 /**
  * Where a signal lives: the ClickHouse data source and the tables of the OpenTelemetry Collector
@@ -25,6 +26,11 @@ export interface SignalSource {
    * the table has one time column.
    */
   filterTimeColumn?: string;
+  /**
+   * The companion trace-id index table (`otel_traces_trace_id_ts`) once loadTraceIndex has found it:
+   * it maps a TraceId to its Start and End, so a trace lookup can bound the scan of the spans table.
+   */
+  traceIndexTable?: string;
   /**
    * The metric tables, by data point type: only the tables that exist once loadMetricsSource has
    * run, the configured names before.
@@ -100,8 +106,46 @@ export const getSignalSource = (uid: string, signal: SignalType): SignalSource |
     database,
     table,
     filterTimeColumn: signal === 'logs' ? config.logs?.filterTimeColumn?.trim() || undefined : undefined,
+    traceIndexTable: signal === 'traces' ? traceIndexes.get(traceIndexKey(uid, database, table, config)) : undefined,
     metricTables: resolved?.tables ?? getConfiguredMetricTables(config.metrics),
   };
+};
+
+/** The name of the trace-id index table the data source's settings point to. */
+const traceIndexName = (table: string, config: Partial<CHConfig>): string =>
+  `${table}${config.traces?.traceTimestampTableSuffix?.trim() || '_trace_id_ts'}`;
+
+const traceIndexKey = (uid: string, database: string, table: string, config: Partial<CHConfig>) =>
+  `${uid}|${database}|${traceIndexName(table, config)}`;
+
+/** The index table of each data source and table, or undefined when the table does not exist. */
+const traceIndexes = new Map<string, string | undefined>();
+
+/**
+ * The traces source with the trace-id index table, when it exists. Deployments without it (older
+ * exporter versions, a hand-made schema) keep the unbounded trace lookup. Looked up once per data
+ * source; a failed lookup counts as "no index" without being remembered.
+ */
+export const loadTraceIndex = async (sceneObject: SceneObject, uid: string): Promise<SignalSource | undefined> => {
+  const source = getSignalSource(uid, 'traces');
+  const settings = getDataSourceSrv().getInstanceSettings(uid);
+  if (!source || !settings) {
+    return source;
+  }
+  const config = jsonData(settings);
+  const key = traceIndexKey(uid, source.database, source.table, config);
+  if (!traceIndexes.has(key)) {
+    const name = traceIndexName(source.table, config);
+    try {
+      const rows = frameRows<{ result: number }>(
+        await runSql(sceneObject, `EXISTS TABLE ${tableSql(source.database, name)}`, Format.Table, uid)
+      );
+      traceIndexes.set(key, Number(rows[0]?.result) === 1 ? name : undefined);
+    } catch {
+      return source;
+    }
+  }
+  return getSignalSource(uid, 'traces');
 };
 
 /** The metrics helpers of a ClickHouse data source version with OTel metrics support. */

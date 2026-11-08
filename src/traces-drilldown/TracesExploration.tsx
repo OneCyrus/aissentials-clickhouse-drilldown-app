@@ -47,6 +47,7 @@ import {
   Format,
   frameRows,
   getSignalSource,
+  loadTraceIndex,
   interpolate,
   queryRunner,
   runSql,
@@ -544,17 +545,21 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
     });
   }
 
-  openTrace(traceId?: string) {
-    const source = this.getSource();
+  async openTrace(traceId?: string) {
+    this.setState({ traceId, trace: undefined });
+    if (!traceId) {
+      return;
+    }
+    // The trace-id index bounds the lookup when the deployment has one (looked up once).
+    const source = await loadTraceIndex(this, interpolate(this, `\${${VAR_DATASOURCE}}`));
+    if (!source || this.state.traceId !== traceId) {
+      return;
+    }
     this.setState({
-      traceId,
-      trace:
-        source && traceId
-          ? PanelBuilders.traces()
-              .setTitle('')
-              .setData(queryRunner([sqlQuery('A', traceSql(source, traceId), Format.Trace)]))
-              .build()
-          : undefined,
+      trace: PanelBuilders.traces()
+        .setTitle('')
+        .setData(queryRunner([sqlQuery('A', traceSql(source, traceId), Format.Trace)]))
+        .build(),
     });
   }
 
