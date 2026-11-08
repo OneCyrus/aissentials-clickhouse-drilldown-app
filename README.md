@@ -150,7 +150,7 @@ git tag v1.2.3
 git push origin v1.2.3
 ```
 
-The version comes from the tag; `package.json` does not need to change.
+The version comes from the tag; `package.json` does not need to change. Instead of pushing a tag, you can also run the **Release** workflow from the Actions tab with the version: it creates the tag on the latest commit of `main`.
 
 ## License
 

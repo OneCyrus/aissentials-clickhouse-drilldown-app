@@ -3,11 +3,19 @@
 # created with the archive, its checksums and the tag's CHANGELOG.md section as notes.
 #
 #   git tag v1.2.3 && git push origin v1.2.3
+#
+# Or run it from the Actions tab (Run workflow) with a version: it releases the selected branch's
+# latest commit and creates the tag vX.Y.Z there.
 name: Release
 
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. 1.2.3 (creates the tag v1.2.3)
+        required: true
 
 permissions:
   contents: write
@@ -35,8 +43,20 @@ jobs:
 
       - name: Set version from the tag
         id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            version="${INPUT_VERSION#v}"
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Version must look like 1.2.3, got '$INPUT_VERSION'."; exit 1
+            fi
+            if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+              echo "::error::Tag v$version already exists."; exit 1
+            fi
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
           npm version "$version" --no-git-tag-version --allow-same-version
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -81,9 +101,15 @@ jobs:
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" artifacts/* \
+          # A manual run creates the tag on the released commit; a tag push already has it.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            tag_args=(--target "$GITHUB_SHA")
+          else
+            tag_args=(--verify-tag)
+          fi
+          gh release create "v$VERSION" artifacts/* \
+            "${tag_args[@]}" \
             --title "v$VERSION" \
             --notes-file notes.md \
             --generate-notes \
-            --verify-tag \
             --latest
