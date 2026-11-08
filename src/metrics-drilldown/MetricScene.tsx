@@ -62,6 +62,7 @@ import {
   interpolate,
   getClickHouseDataSources,
   getSignalSource,
+  LatestRequest,
   metricTableOf,
   headerButton,
   SignalSource,
@@ -242,7 +243,13 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     return sceneGraph.getAncestor(this, MetricsExploration);
   }
 
+  /** The metric's labels and summary quantiles; a filter or range change supersedes the request. */
+  private labelsRequest = new LatestRequest();
+  /** The related logs count; switching the logs data source or the filters supersedes it. */
+  private logsCountRequest = new LatestRequest();
+
   async loadLabels() {
+    const isCurrent = this.labelsRequest.start();
     const source = await this.getExploration()
       .loadSource()
       .catch(() => undefined);
@@ -258,6 +265,9 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
           )
         : Promise.resolve([]),
     ]);
+    if (!isCurrent()) {
+      return;
+    }
     const labels = toMetricLabels(frameRows<{ source: string; key: string }>(keys));
     const summaryQuantiles = frameRows<{ quantile: number }>(quantiles)
       .map((row) => Number(row.quantile))
@@ -487,17 +497,24 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
 
   /** Counts the related log lines in the background for the tab's badge. */
   async countRelatedLogs() {
+    const isCurrent = this.logsCountRequest.start();
     const query = this.relatedLogsQuery();
     if (!query) {
       this.setState({ logsCount: undefined });
       return;
     }
     const { uid, logsSource, condition } = query;
+    // The badge shows no count until the new one arrives, rather than the previous filters' count.
+    this.setState({ logsCount: undefined });
     try {
       const rows = frameRows<{ count: number }>(await runSql(this, countSql(logsSource, condition), Format.Table, uid));
-      this.setState({ logsCount: Number(rows[0]?.count || 0) });
+      if (isCurrent()) {
+        this.setState({ logsCount: Number(rows[0]?.count || 0) });
+      }
     } catch {
-      this.setState({ logsCount: undefined });
+      if (isCurrent()) {
+        this.setState({ logsCount: undefined });
+      }
     }
   }
 

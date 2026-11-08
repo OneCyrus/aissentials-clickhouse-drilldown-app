@@ -36,14 +36,20 @@ import {
   Control,
   frameRows,
   getSignalSource,
+  DONE,
   hasMetricTables,
   interpolate,
+  isLoading,
+  LatestRequest,
+  LoadState,
+  LoadStatus,
+  loadFailed,
+  LOADING,
   loadMetricsSource,
   runSql,
   searchMatches,
   SignalSource,
   store,
-  errorMessage,
 } from '../shared';
 import {
   catalogSql,
@@ -91,8 +97,10 @@ interface MetricsExplorationState extends SceneObjectState {
   sidebar?: SidebarSection;
   catalog: MetricCatalogEntry[];
   labels: MetricLabel[];
-  loading: boolean;
-  error?: string;
+  /** The metric list (catalog and label names) of the data source, filters and time range. */
+  catalogLoad: LoadState;
+  /** The "Group by labels" list; done when no label is selected. */
+  groupsLoad: LoadState;
   grid?: SceneCSSGridLayout;
   groupGrids: SceneCSSGridLayout[];
   metricScene?: MetricScene;
@@ -150,8 +158,13 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
     onReferencedVariableValueChanged: () => this.load(),
   });
 
-  private loadToken = 0;
-  private groupsToken = 0;
+  private catalogRequest = new LatestRequest();
+  /**
+   * Switching labels (or clearing the grouping) while a query is in flight otherwise lets the
+   * previous label's values land a moment later, with Select buttons filtering on a label that is
+   * no longer selected.
+   */
+  private groupsRequest = new LatestRequest();
 
   constructor(state: Partial<MetricsExplorationState> = {}) {
     super({
@@ -166,7 +179,8 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
       groupsShown: GROUPS_FIRST_PAGE,
       catalog: [],
       labels: [],
-      loading: true,
+      catalogLoad: LOADING,
+      groupsLoad: DONE,
       groupGrids: [],
       ...state,
     });
@@ -243,15 +257,15 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
 
   /** Loads the metric list and the label names for the current data source, filters and range. */
   async load() {
-    const token = ++this.loadToken;
+    const isCurrent = this.catalogRequest.start();
     if (!this.getSource()) {
-      this.setState({ loading: false, error: 'Pick a ClickHouse data source with OpenTelemetry metrics.' });
+      this.setState({ catalogLoad: loadFailed('Pick a ClickHouse data source with OpenTelemetry metrics.') });
       return;
     }
-    this.setState({ loading: true, error: undefined });
+    this.setState({ catalogLoad: LOADING });
     try {
       const source = await this.loadSource();
-      if (token !== this.loadToken) {
+      if (!isCurrent()) {
         return;
       }
       // Filters from the URL were turned into SQL before the table shape was known; rebuild them.
@@ -267,8 +281,9 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
       if (!source || !hasMetricTables(source)) {
         this.setState({
           catalog: [],
-          loading: false,
-          error: `No OpenTelemetry metric tables found in database ${source?.database ?? ''}. Check the data source's metrics settings.`,
+          catalogLoad: loadFailed(
+            `No OpenTelemetry metric tables found in database ${source?.database ?? ''}. Check the data source's metrics settings.`
+          ),
         });
         return;
       }
@@ -276,7 +291,7 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
         runSql(this, catalogSql(source, FILTERS)),
         runSql(this, labelKeysSql(source, FILTERS)).catch(() => []),
       ]);
-      if (token !== this.loadToken) {
+      if (!isCurrent()) {
         return;
       }
       const catalog = frameRows<{
@@ -295,7 +310,7 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
       this.setState({
         catalog,
         labels: toMetricLabels(frameRows<{ source: string; key: string }>(keys)),
-        loading: false,
+        catalogLoad: DONE,
       });
       if (this.state.groupBy) {
         this.loadGroups();
@@ -307,39 +322,43 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
         this.state.metricScene.setView({ groupBy: '$__all' });
       }
     } catch (error) {
-      if (token === this.loadToken) {
-        this.setState({ loading: false, error: errorMessage(error) });
+      if (isCurrent()) {
+        this.setState({ catalogLoad: loadFailed(error) });
       }
     }
   }
 
   async loadGroups() {
-    const source = await this.loadSource().catch(() => undefined);
+    const isCurrent = this.groupsRequest.start();
     const label = this.state.groupBy ? parseMetricLabelId(this.state.groupBy) : undefined;
-    // Every call takes a token; only the newest may write. Switching labels (or clearing the
-    // grouping) while a query is in flight otherwise lets the previous label's values land a
-    // moment later, so the list shows groups the user has already left and its Select buttons
-    // filter on a label that is no longer selected.
-    const token = ++this.groupsToken;
-    if (!source || !label) {
-      this.setState({ groups: [] });
+    if (!label) {
+      // No grouping: nothing to load, and nothing still loading.
+      this.setState({ groups: [], groupsLoad: DONE });
       this.refresh();
       return;
     }
-    this.setState({ loading: true });
+    this.setState({ groupsLoad: LOADING });
     try {
-      const groups = frameRows<{ value: string; names: string[] }>(
-        await runSql(this, metricsByLabelValueSql(source, label, FILTERS))
-      ).map((row) => ({ value: row.value, names: Array.from(row.names || []) }));
-      if (token !== this.groupsToken) {
+      const source = await this.loadSource();
+      if (!isCurrent()) {
         return;
       }
-      this.setState({ groups, groupsShown: GROUPS_FIRST_PAGE, loading: false });
+      if (!source) {
+        this.setState({ groups: [], groupsLoad: DONE });
+      } else {
+        const groups = frameRows<{ value: string; names: string[] }>(
+          await runSql(this, metricsByLabelValueSql(source, label, FILTERS))
+        ).map((row) => ({ value: row.value, names: Array.from(row.names || []) }));
+        if (!isCurrent()) {
+          return;
+        }
+        this.setState({ groups, groupsShown: GROUPS_FIRST_PAGE, groupsLoad: DONE });
+      }
     } catch (error) {
-      if (token !== this.groupsToken) {
+      if (!isCurrent()) {
         return;
       }
-      this.setState({ groups: [], loading: false, error: errorMessage(error) });
+      this.setState({ groups: [], groupsLoad: loadFailed(error) });
     }
     this.refresh();
   }
@@ -470,12 +489,12 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
   }
 
   static Component = ({ model }: SceneComponentProps<MetricsExploration>) => {
-    const { metricScene, metric, catalog, loading } = model.useState();
+    const { metricScene, metric, catalog, catalogLoad } = model.useState();
     if (metric) {
       if (metricScene) {
         return <metricScene.Component model={metricScene} />;
       }
-      return loading ? (
+      return isLoading(catalogLoad) ? (
         <LoadingPlaceholder text="Loading metric…" />
       ) : (
         <Alert severity="info" title={`No data for ${metric}`}>
@@ -634,8 +653,8 @@ function LabelList({ model }: SceneComponentProps<MetricsExploration>) {
 function MetricsReducer({ model }: SceneComponentProps<MetricsExploration>) {
   const styles = useStyles2(getStyles);
   const state = model.useState();
-  const { catalog, loading, error, grid, search, prefixes, suffixes, types, layout, shown, sortBy, sidebar } = state;
-  const { groupBy, groups, groupGrids, groupsShown } = state;
+  const { catalog, catalogLoad, grid, search, prefixes, suffixes, types, layout, shown, sortBy, sidebar } = state;
+  const { groupBy, groups, groupsLoad, groupGrids, groupsShown } = state;
   const visible = model.getVisibleMetrics();
   const [searchText, setSearchText] = useState(search);
   useEffect(() => setSearchText(search), [search]);
@@ -783,9 +802,21 @@ function MetricsReducer({ model }: SceneComponentProps<MetricsExploration>) {
             />
           </Stack>
         </div>
-        {error && <Alert title="Error while loading metrics!">{error}</Alert>}
-        {loading && !catalog.length && <LoadingPlaceholder text="Loading metrics…" />}
-        {!loading && !error && !groupBy && !visible.length && (
+        <LoadStatus
+          state={catalogLoad}
+          loadingText="Loading metrics…"
+          errorTitle="Error while loading metrics"
+          quietLoading={catalog.length > 0}
+        />
+        {groupBy && (
+          <LoadStatus
+            state={groupsLoad}
+            loadingText="Loading label values…"
+            errorTitle="Error while loading label values"
+            quietLoading={groups.length > 0}
+          />
+        )}
+        {catalogLoad.status === 'done' && !groupBy && !visible.length && (
           <Alert severity="info" title="No metrics found for the current filters and time range." />
         )}
         {!groupBy && grid && <grid.Component model={grid} />}
@@ -796,7 +827,7 @@ function MetricsReducer({ model }: SceneComponentProps<MetricsExploration>) {
             </Button>
           </div>
         )}
-        {groupBy && !loading && !groups.length && (
+        {groupBy && groupsLoad.status === 'done' && !groups.length && (
           <Alert severity="info" title={`No label values found for label "${groupLabel?.key}".`} />
         )}
         {groupBy &&

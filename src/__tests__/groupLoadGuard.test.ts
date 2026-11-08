@@ -1,47 +1,93 @@
 /**
- * The staleness guard on MetricsExploration.loadGroups.
- *
- * The scene object needs a live Grafana runtime, so this test pins the property that matters by
- * running the same token discipline the class uses: a slow response from an earlier call must not
- * overwrite the state a newer call wrote.
+ * The "Group by labels" list of the metrics overview is its own load state machine. These run the
+ * real MetricsExploration.loadGroups with the query layer stubbed, so the transitions are tested,
+ * not a copy of the pattern.
  */
-class GuardedLoader {
-  token = 0;
-  groups: string[] = [];
+const runSql = jest.fn();
 
-  async run(pending: Promise<string[]>, apply: (groups: string[]) => void) {
-    const token = ++this.token;
-    const groups = await pending;
-    if (token !== this.token) {
-      return undefined;
-    }
-    apply(groups);
-    return groups;
-  }
-}
+jest.mock('../shared/query', () => ({
+  ...jest.requireActual('../shared/query'),
+  runSql: (...args: unknown[]) => runSql(...args),
+}));
 
-describe('loadGroups staleness guard', () => {
-  it('drops a response superseded by a newer call', async () => {
-    const loader = new GuardedLoader();
-    const applied: string[][] = [];
-    let resolveFirst: (groups: string[]) => void = () => undefined;
-    const first = new Promise<string[]>((resolve) => {
-      resolveFirst = resolve;
-    });
+// Imported after the mock.
+import { MetricsExploration } from '../metrics-drilldown/MetricsExploration';
+import { SignalSource } from '../shared/datasource';
 
-    const firstRun = loader.run(first, (groups) => applied.push(groups));
-    const secondRun = loader.run(Promise.resolve(['new']), (groups) => applied.push(groups));
-    await secondRun;
-    resolveFirst(['stale']);
-    await firstRun;
+const source = {
+  uid: 'metrics',
+  type: 'grafana-clickhouse-datasource',
+  name: 'metrics',
+  database: 'otel',
+  table: '',
+  metricTables: { gauge: 'otel_metrics_gauge' },
+} as unknown as SignalSource;
 
-    expect(applied).toEqual([['new']]);
+const groupRows = (values: string[]) => [
+  {
+    fields: [
+      { name: 'value', values },
+      { name: 'names', values: values.map(() => ['http.server.request.count']) },
+    ],
+    length: values.length,
+  },
+];
+
+const deferred = <T>() => {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+};
+
+/** Lets pending promise callbacks run, so a started load reaches its query. */
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+const exploration = (groupBy?: string) => {
+  const scene = new MetricsExploration({ groupBy });
+  scene.loadSource = jest.fn().mockResolvedValue(source);
+  scene.refresh = jest.fn();
+  return scene;
+};
+
+describe('metrics "Group by labels" load', () => {
+  beforeEach(() => runSql.mockReset());
+
+  it('drops a response superseded by another label', async () => {
+    const scene = exploration('resource.k8s.pod.name');
+    const slow = deferred<unknown>();
+    runSql.mockReturnValueOnce(slow.promise).mockResolvedValueOnce(groupRows(['checkout']));
+    const first = scene.loadGroups();
+    await flush();
+    expect(runSql).toHaveBeenCalledTimes(1);
+    scene.setState({ groupBy: 'resource.service.name' });
+    await scene.loadGroups();
+    slow.resolve(groupRows(['pod-1']));
+    await first;
+    expect(scene.state.groups.map((g) => g.value)).toEqual(['checkout']);
+    expect(scene.state.groupsLoad).toEqual({ status: 'done' });
   });
 
-  it('applies the response of the newest call', async () => {
-    const loader = new GuardedLoader();
-    const applied: string[][] = [];
-    await loader.run(Promise.resolve(['only']), (groups) => applied.push(groups));
-    expect(applied).toEqual([['only']]);
+  it('is not stuck loading when the grouping is cleared while a request is in flight', async () => {
+    const scene = exploration('resource.k8s.pod.name');
+    const slow = deferred<unknown>();
+    runSql.mockReturnValueOnce(slow.promise);
+    const first = scene.loadGroups();
+    await flush();
+    expect(scene.state.groupsLoad).toEqual({ status: 'loading' });
+    scene.setState({ groupBy: undefined });
+    await scene.loadGroups();
+    expect(scene.state.groupsLoad).toEqual({ status: 'done' });
+    slow.resolve(groupRows(['pod-1']));
+    await first;
+    expect(scene.state.groups).toEqual([]);
+    expect(scene.state.groupsLoad).toEqual({ status: 'done' });
+  });
+
+  it('keeps the metric list state separate from the group list state', async () => {
+    const scene = exploration('resource.k8s.pod.name');
+    runSql.mockRejectedValueOnce(new Error('bad label'));
+    await scene.loadGroups();
+    expect(scene.state.groupsLoad).toEqual({ status: 'error', message: 'bad label' });
+    expect(scene.state.catalogLoad).toEqual({ status: 'loading' });
   });
 });

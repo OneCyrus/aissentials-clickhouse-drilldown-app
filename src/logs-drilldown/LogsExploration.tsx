@@ -27,7 +27,6 @@ import {
   Icon,
   IconButton,
   Input,
-  LoadingPlaceholder,
   MultiCombobox,
   RadioButtonGroup,
   Stack,
@@ -45,8 +44,14 @@ import {
   Format,
   frameRows,
   getSignalSource,
+  DONE,
   interpolate,
+  LatestRequest,
   levelColors,
+  LoadState,
+  LoadStatus,
+  loadFailed,
+  LOADING,
   queryRunner,
   runSql,
   SeriesSort,
@@ -117,8 +122,8 @@ interface LogsExplorationState extends SceneObjectState {
   page: number;
   values: Array<{ value: string; count: number }>;
   tabs: string[];
-  loading: boolean;
-  error?: string;
+  /** The landing page's value list (services or another label) for the filters and range. */
+  landingLoad: LoadState;
   // Details
   labels: DetectedKey[];
   fields: DetectedKey[];
@@ -153,7 +158,11 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     onReferencedVariableValueChanged: () => this.refresh(),
   });
 
-  private token = 0;
+  private landingRequest = new LatestRequest();
+  /** The tiles' data of the landing page shown; search, paging and refresh supersede it. */
+  private tilesRequest = new LatestRequest();
+  /** The details' counts and detected keys; a filter change while they load supersedes them. */
+  private countsRequest = new LatestRequest();
 
   constructor(state: Partial<LogsExplorationState> = {}) {
     super({
@@ -171,7 +180,7 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
       page: 0,
       values: [],
       tabs: [SERVICE_KEY],
-      loading: true,
+      landingLoad: LOADING,
       labels: [],
       fields: [],
       ...state,
@@ -277,23 +286,26 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
 
   async loadLanding() {
     const source = this.getSource();
-    const token = ++this.token;
+    const isCurrent = this.landingRequest.start();
     if (!source) {
-      this.setState({ loading: false, error: 'Pick a ClickHouse data source with OpenTelemetry logs.' });
+      this.setState({ landingLoad: loadFailed('Pick a ClickHouse data source with OpenTelemetry logs.') });
       return;
     }
-    this.setState({ loading: true, error: undefined });
+    this.setState({ landingLoad: LOADING });
     try {
       const rows = frameRows<{ value: string; count: number }>(
         await runSql(this, valueCountsSql(source, this.state.primaryLabel, FILTERS))
       );
-      if (token === this.token) {
-        this.setState({ values: rows.map((row) => ({ value: row.value, count: Number(row.count) })), loading: false });
+      if (isCurrent()) {
+        this.setState({
+          values: rows.map((row) => ({ value: row.value, count: Number(row.count) })),
+          landingLoad: DONE,
+        });
         this.buildLanding();
       }
     } catch (error) {
-      if (token === this.token) {
-        this.setState({ loading: false, error: errorMessage(error) });
+      if (isCurrent()) {
+        this.setState({ landingLoad: loadFailed(error) });
       }
     }
   }
@@ -394,8 +406,6 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     this.loadLandingData(source, values, volumes, lines);
   }
 
-  private landingToken = 0;
-
   /**
    * The volume and the latest lines of all tiles of the page: one query each, split per tile,
    * instead of two queries per tile. A newer page (search, paging, refresh) supersedes it.
@@ -406,7 +416,7 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     volumes: Map<string, SceneDataNode>,
     lines: Map<string, SceneDataNode>
   ) {
-    const token = ++this.landingToken;
+    const isCurrent = this.tilesRequest.start();
     if (!values.length) {
       return;
     }
@@ -414,14 +424,14 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     const timeRange = sceneGraph.getTimeRange(this).state.value;
     const fill = (nodes: Map<string, SceneDataNode>, split: (frames: DataFrame[], value: string) => DataFrame[]) => ({
       done: (frames: DataFrame[]) => {
-        if (token === this.landingToken) {
+        if (isCurrent()) {
           nodes.forEach((node, value) =>
             node.setState({ data: { state: LoadingState.Done, series: split(frames, value), timeRange } })
           );
         }
       },
       failed: (error: unknown) => {
-        if (token === this.landingToken) {
+        if (isCurrent()) {
           const errors = [{ message: errorMessage(error) }];
           nodes.forEach((node) =>
             node.setState({ data: { state: LoadingState.Error, series: [], timeRange, errors } })
@@ -492,6 +502,7 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
   // Details
 
   async loadCounts() {
+    const isCurrent = this.countsRequest.start();
     const source = this.getSource();
     if (!source) {
       return;
@@ -501,6 +512,9 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
       runSql(this, detectedKeysSql(source, 'labels', ALL_FILTERS)).catch(() => []),
       runSql(this, detectedKeysSql(source, 'fields', ALL_FILTERS)).catch(() => []),
     ]);
+    if (!isCurrent()) {
+      return;
+    }
     const keys = (frames: typeof labels) =>
       frameRows<{ key: string; cardinality: number }>(frames).map((row) => ({
         key: row.key,
@@ -740,7 +754,7 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
 
 function ServiceSelection({ model }: SceneComponentProps<LogsExploration>) {
   const styles = useStyles2(getStyles);
-  const { body, loading, error, values, primaryLabel, tabs, search, pageSize, page } = model.useState();
+  const { body, landingLoad, values, primaryLabel, tabs, search, pageSize, page } = model.useState();
   const [searchText, setSearchText] = useState(search);
   const [addingTab, setAddingTab] = useState(false);
   const [labelKeys, setLabelKeys] = useState<string[]>([]);
@@ -845,9 +859,13 @@ function ServiceSelection({ model }: SceneComponentProps<LogsExploration>) {
           Show logs
         </Button>
       </Toolbar>
-      {error && <Alert title="Error while loading logs">{error}</Alert>}
-      {loading && !values.length && <LoadingPlaceholder text="Loading…" />}
-      {!loading && !error && !total && (
+      <LoadStatus
+        state={landingLoad}
+        loadingText={`Loading ${labelName} values…`}
+        errorTitle="Error while loading logs"
+        quietLoading={values.length > 0}
+      />
+      {landingLoad.status === 'done' && !total && (
         <Alert
           severity="info"
           title={search ? `No ${labelName} matched your search.` : `No logs found in ${labelName}.`}
