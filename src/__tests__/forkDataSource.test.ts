@@ -24,7 +24,9 @@ describe('fork data sources', () => {
     list.mockReset();
     const catalog = source('logs', 'grafana-clickhouse-datasource', 'logs');
     const fork = source('metrics', 'onecyrus-clickhouse-datasource', 'metrics');
-    list.mockImplementation(({ type }: { type: string }) => (type === fork.type ? [fork] : type === catalog.type ? [catalog] : []));
+    list.mockImplementation(({ type }: { type: string }) =>
+      type === fork.type ? [fork] : type === catalog.type ? [catalog] : []
+    );
   });
 
   it('queries each accepted plugin id instead of only the catalog one', () => {
@@ -48,7 +50,7 @@ describe('fork data sources', () => {
     runtime.getDataSourceSrv = () => ({
       getList: (args: { type: string }) => list(args),
       getInstanceSettings: (uid: string) =>
-        ({ metrics: source('metrics', 'onecyrus-clickhouse-datasource', 'metrics') } as Record<string, unknown>)[uid],
+        (({ metrics: source('metrics', 'onecyrus-clickhouse-datasource', 'metrics') }) as Record<string, unknown>)[uid],
     });
     const resolved = getSignalSource('metrics', 'metrics');
     expect(resolved?.type).toBe('onecyrus-clickhouse-datasource');

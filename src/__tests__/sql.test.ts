@@ -160,7 +160,14 @@ describe('traces', () => {
 
   it('keeps aliases from shadowing the duration column', () => {
     const sql = spanListSql(
-      { uid: '', type: 'grafana-clickhouse-datasource', name: '', database: 'otel', table: 'otel_traces', metricTables: {} as never },
+      {
+        uid: '',
+        type: 'grafana-clickhouse-datasource',
+        name: '',
+        database: 'otel',
+        table: 'otel_traces',
+        metricTables: {} as never,
+      },
       'Duration >= 1',
       []
     );
