@@ -1,7 +1,7 @@
 import { EmbeddedScene } from '@grafana/scenes';
 import { MetricLabel } from 'clickhouse/types';
 import { buildAppScene, filtersVariable, otherFiltersSql } from '../shared/scene';
-import { frameRows, getSignalSource, interpolate, runSql } from '../shared';
+import { frameRows, hasMetricTables, interpolate, loadMetricsSource, runSql } from '../shared';
 import { VAR_DATASOURCE } from '../constants';
 import {
   labelKeysSql,
@@ -25,8 +25,8 @@ export const buildMetricsScene = (): EmbeddedScene => {
     placeholder: 'Filter by label values',
     expressionOf: metricLabelExpression,
     getKeys: async (variable) => {
-      const source = getSignalSource(interpolate(variable, `\${${VAR_DATASOURCE}}`), 'metrics');
-      if (!source) {
+      const source = await loadMetricsSource(variable, interpolate(variable, `\${${VAR_DATASOURCE}}`));
+      if (!source || !hasMetricTables(source)) {
         return [];
       }
       const rows = frameRows<{ source: string; key: string }>(
@@ -39,9 +39,9 @@ export const buildMetricsScene = (): EmbeddedScene => {
       }));
     },
     getValues: async (variable, key) => {
-      const source = getSignalSource(interpolate(variable, `\${${VAR_DATASOURCE}}`), 'metrics');
+      const source = await loadMetricsSource(variable, interpolate(variable, `\${${VAR_DATASOURCE}}`));
       const label = parseMetricLabelId(key);
-      if (!source || !label) {
+      if (!source || !hasMetricTables(source) || !label) {
         return [];
       }
       const rows = frameRows<{ value: string }>(

@@ -10,7 +10,7 @@ import {
   sceneGraph,
 } from '@grafana/scenes';
 import { Alert, Button, Icon, IconButton, Input, LoadingPlaceholder, useStyles2, useTheme2 } from '@grafana/ui';
-import { Format, frameRows, levelColors, queryRunner, runSql, sqlQuery } from '../shared';
+import { errorMessage, Format, frameRows, levelColors, queryRunner, runSql, sqlQuery } from '../shared';
 import { ALL_FILTERS, FILTERS, LEVELS, patternSamplesSql, patternsListSql, patternsVolumeSql } from './sql';
 import { namedSeries, stackedBars } from './panels';
 import { LogsExploration } from './LogsExploration';
@@ -88,7 +88,7 @@ export class PatternsScene extends SceneObjectBase<PatternsSceneState> {
       this.setState({ rows, loading: false });
       exploration.setState({ patternsCount: rows.length });
     } catch (error) {
-      this.setState({ loading: false, error: error instanceof Error ? error.message : String(error) });
+      this.setState({ loading: false, error: errorMessage(error) });
     }
   }
 

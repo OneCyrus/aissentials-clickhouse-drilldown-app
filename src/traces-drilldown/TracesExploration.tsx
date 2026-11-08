@@ -55,6 +55,7 @@ import {
   sqlQuery,
   Toolbar,
   ToolbarGroup,
+  errorMessage,
 } from '../shared';
 import {
   attributeKeysSql,
@@ -371,7 +372,7 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
             loading: false,
           });
         } catch (error) {
-          this.setState({ loading: false, error: error instanceof Error ? error.message : String(error) });
+          this.setState({ loading: false, error: errorMessage(error) });
         }
         return;
       case 'exceptions':
@@ -382,7 +383,7 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
           );
           this.setState({ exceptions: groupExceptions(rows), loading: false });
         } catch (error) {
-          this.setState({ loading: false, error: error instanceof Error ? error.message : String(error) });
+          this.setState({ loading: false, error: errorMessage(error) });
         }
         return;
       case 'traceList': {
@@ -395,7 +396,7 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
           );
           this.setState({ spans: rows, loading: false });
         } catch (error) {
-          this.setState({ loading: false, error: error instanceof Error ? error.message : String(error) });
+          this.setState({ loading: false, error: errorMessage(error) });
         }
         return;
       }

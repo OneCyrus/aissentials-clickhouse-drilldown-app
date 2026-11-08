@@ -8,7 +8,7 @@ import {
   quoteString,
 } from 'clickhouse/metrics';
 import { MetricFunction, MetricLabel, MetricQuery, MetricType } from 'clickhouse/types';
-import { SignalSource, tableSql } from '../shared';
+import { metricTableOf, SignalSource, tableSql } from '../shared';
 import { VAR_FILTERS } from '../constants';
 
 /** The filter bar's condition, interpolated by the scene. */
@@ -44,7 +44,7 @@ export const metricLabelExpression = (key: string): string | undefined => {
 const tablesOf = (source: SignalSource, entry?: Pick<MetricCatalogEntry, 'type'>): Array<[MetricType, string]> =>
   metricTypes
     .filter((type) => (!entry || entry.type === type) && source.metricTables[type])
-    .map((type) => [type, tableSql(source.database, source.metricTables[type])]);
+    .map((type) => [type, tableSql(source.database, metricTableOf(source, type))]);
 
 /** The metrics with data matching the filters, across all metric tables. */
 export const catalogSql = (source: SignalSource, condition: string): string => {
@@ -122,7 +122,7 @@ export const defaultMetricQuery = (entry: MetricCatalogEntry, previous?: MetricQ
 export const metricSql = (source: SignalSource, query: MetricQuery): string =>
   generateMetricsQuery({
     database: source.database,
-    table: source.metricTables[query.type],
+    table: metricTableOf(source, query.type),
     metric: { ...query, condition: FILTERS },
   });
 

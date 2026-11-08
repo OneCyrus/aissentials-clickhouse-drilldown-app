@@ -89,3 +89,18 @@ export const frameRows = <T extends Record<string, unknown>>(frames: DataFrame[]
     Object.fromEntries(frame.fields.map((field) => [field.name, field.values[index]]))
   ) as T[];
 };
+
+/**
+ * A readable message of a failed query: Error objects, Grafana's fetch errors ({ data: { message } },
+ * { statusText }) and plain strings.
+ */
+export const errorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'object' && error) {
+    const e = error as { data?: { message?: string; error?: string }; message?: string; statusText?: string };
+    return e.data?.message || e.data?.error || e.message || e.statusText || JSON.stringify(error);
+  }
+  return String(error);
+};

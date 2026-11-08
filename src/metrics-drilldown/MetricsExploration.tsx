@@ -32,7 +32,18 @@ import {
 import { MetricCatalogEntry, metricTypeLabels } from 'clickhouse/metrics';
 import { MetricLabel, MetricType } from 'clickhouse/types';
 import { VAR_DATASOURCE, VAR_FILTERS } from '../constants';
-import { Control, frameRows, getSignalSource, interpolate, runSql, SignalSource, store } from '../shared';
+import {
+  Control,
+  frameRows,
+  getSignalSource,
+  hasMetricTables,
+  interpolate,
+  loadMetricsSource,
+  runSql,
+  SignalSource,
+  store,
+  errorMessage,
+} from '../shared';
 import {
   catalogSql,
   FILTERS,
@@ -219,6 +230,11 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
     return getSignalSource(interpolate(this, `\${${VAR_DATASOURCE}}`), 'metrics');
   }
 
+  /** The source with the metric tables that exist (looked up once per data source). */
+  loadSource(): Promise<SignalSource | undefined> {
+    return loadMetricsSource(this, interpolate(this, `\${${VAR_DATASOURCE}}`));
+  }
+
   getFiltersVariable(): AdHocFiltersVariable | undefined {
     const variable = sceneGraph.lookupVariable(VAR_FILTERS, this);
     return variable instanceof AdHocFiltersVariable ? variable : undefined;
@@ -226,14 +242,25 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
 
   /** Loads the metric list and the label names for the current data source, filters and range. */
   async load() {
-    const source = this.getSource();
     const token = ++this.loadToken;
-    if (!source) {
+    if (!this.getSource()) {
       this.setState({ loading: false, error: 'Pick a ClickHouse data source with OpenTelemetry metrics.' });
       return;
     }
     this.setState({ loading: true, error: undefined });
     try {
+      const source = await this.loadSource();
+      if (token !== this.loadToken) {
+        return;
+      }
+      if (!source || !hasMetricTables(source)) {
+        this.setState({
+          catalog: [],
+          loading: false,
+          error: `No OpenTelemetry metric tables found in database ${source?.database ?? ''}. Check the data source's metrics settings.`,
+        });
+        return;
+      }
       const [rows, keys] = await Promise.all([
         runSql(this, catalogSql(source, FILTERS)),
         runSql(this, labelKeysSql(source, FILTERS)).catch(() => []),
@@ -270,13 +297,13 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
       }
     } catch (error) {
       if (token === this.loadToken) {
-        this.setState({ loading: false, error: error instanceof Error ? error.message : String(error) });
+        this.setState({ loading: false, error: errorMessage(error) });
       }
     }
   }
 
   async loadGroups() {
-    const source = this.getSource();
+    const source = await this.loadSource().catch(() => undefined);
     const label = this.state.groupBy ? parseMetricLabelId(this.state.groupBy) : undefined;
     if (!source || !label) {
       this.setState({ groups: [] });
@@ -290,7 +317,7 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
       ).map((row) => ({ value: row.value, names: Array.from(row.names || []) }));
       this.setState({ groups, groupsShown: GROUPS_FIRST_PAGE, loading: false });
     } catch (error) {
-      this.setState({ groups: [], loading: false, error: error instanceof Error ? error.message : String(error) });
+      this.setState({ groups: [], loading: false, error: errorMessage(error) });
     }
     this.refresh();
   }

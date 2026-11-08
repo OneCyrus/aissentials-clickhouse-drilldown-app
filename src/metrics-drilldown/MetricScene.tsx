@@ -62,6 +62,7 @@ import {
   interpolate,
   getClickHouseDataSources,
   getSignalSource,
+  metricTableOf,
   headerButton,
   quoteString,
   queryRunner,
@@ -245,7 +246,9 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
   }
 
   async loadLabels() {
-    const source = this.getExploration().getSource();
+    const source = await this.getExploration()
+      .loadSource()
+      .catch(() => undefined);
     if (!source) {
       return;
     }
@@ -253,7 +256,7 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     const [keys, quantiles] = await Promise.all([
       runSql(this, labelKeysSql(source, '1 = 1', entry)).catch(() => []),
       entry.type === MetricType.Summary
-        ? runSql(this, getSummaryQuantilesSql(source.database, source.metricTables[entry.type], entry.name)).catch(
+        ? runSql(this, getSummaryQuantilesSql(source.database, metricTableOf(source, entry.type), entry.name)).catch(
             () => []
           )
         : Promise.resolve([]),
@@ -536,7 +539,7 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     });
     const builderOptions = {
       database: source.database,
-      table: source.metricTables[this.state.entry.type],
+      table: metricTableOf(source, this.state.entry.type),
       queryType: QueryType.TimeSeries,
       metric: { ...this.state.query, groupBy: [] },
       filters: builderFilters,

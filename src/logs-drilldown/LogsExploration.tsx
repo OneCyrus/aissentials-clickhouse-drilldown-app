@@ -58,6 +58,7 @@ import {
   Toolbar,
   ToolbarGroup,
   valueSortOptions,
+  errorMessage,
 } from '../shared';
 import {
   ALL_FILTERS,
@@ -290,7 +291,7 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
       }
     } catch (error) {
       if (token === this.token) {
-        this.setState({ loading: false, error: error instanceof Error ? error.message : String(error) });
+        this.setState({ loading: false, error: errorMessage(error) });
       }
     }
   }
