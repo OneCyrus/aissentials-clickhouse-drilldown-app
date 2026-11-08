@@ -1,6 +1,6 @@
 {
   "name": "aissentials-clickhouse-drilldown-app",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Queryless browsing of OpenTelemetry metrics, logs and traces stored in ClickHouse",
   "private": true,
   "engines": {

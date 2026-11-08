@@ -60,7 +60,7 @@ Download the latest archive from the [releases page](https://github.com/OneCyrus
 
 ```bash
 grafana cli \
-  --pluginUrl https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/download/v1.0.0/aissentials-clickhousedrilldown-app-1.0.0.zip \
+  --pluginUrl https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/download/v0.1.0/aissentials-clickhousedrilldown-app-0.1.0.zip \
   plugins install aissentials-clickhousedrilldown-app
 ```
 
@@ -68,7 +68,7 @@ or, with the Grafana Docker image (Grafana 12 or later):
 
 ```bash
 docker run -p 3000:3000 \
-  -e GF_PLUGINS_PREINSTALL_SYNC="grafana-clickhouse-datasource,aissentials-clickhousedrilldown-app@1.0.0@https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/download/v1.0.0/aissentials-clickhousedrilldown-app-1.0.0.zip" \
+  -e GF_PLUGINS_PREINSTALL_SYNC="grafana-clickhouse-datasource,aissentials-clickhousedrilldown-app@0.1.0@https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/download/v0.1.0/aissentials-clickhousedrilldown-app-0.1.0.zip" \
   -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=aissentials-clickhousedrilldown-app \
   grafana/grafana
 ```
