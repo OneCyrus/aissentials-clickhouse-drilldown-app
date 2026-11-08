@@ -29,7 +29,17 @@ export interface CHMetricsConfig {
 export interface CHConfig {
   defaultDatabase?: string;
   signalType?: SignalType;
-  logs?: { defaultDatabase?: string; defaultTable?: string };
+  logs?: {
+    defaultDatabase?: string;
+    defaultTable?: string;
+    /**
+     * The column the exporter's partition key uses (DateTime), when the schema has one. Filtering on
+     * it prunes partitions; filtering on the DateTime64 column does not.
+     */
+    filterTimeColumn?: string;
+    /** The precise DateTime64 column, used for ordering and display. */
+    timeColumn?: string;
+  };
   traces?: { defaultDatabase?: string; defaultTable?: string };
   metrics?: CHMetricsConfig;
 }
