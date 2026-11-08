@@ -151,6 +151,7 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
   });
 
   private loadToken = 0;
+  private groupsToken = 0;
 
   constructor(state: Partial<MetricsExplorationState> = {}) {
     super({
@@ -305,6 +306,11 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
   async loadGroups() {
     const source = await this.loadSource().catch(() => undefined);
     const label = this.state.groupBy ? parseMetricLabelId(this.state.groupBy) : undefined;
+    // Every call takes a token; only the newest may write. Switching labels (or clearing the
+    // grouping) while a query is in flight otherwise lets the previous label's values land a
+    // moment later, so the list shows groups the user has already left and its Select buttons
+    // filter on a label that is no longer selected.
+    const token = ++this.groupsToken;
     if (!source || !label) {
       this.setState({ groups: [] });
       this.refresh();
@@ -315,8 +321,14 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
       const groups = frameRows<{ value: string; names: string[] }>(
         await runSql(this, metricsByLabelValueSql(source, label, FILTERS))
       ).map((row) => ({ value: row.value, names: Array.from(row.names || []) }));
+      if (token !== this.groupsToken) {
+        return;
+      }
       this.setState({ groups, groupsShown: GROUPS_FIRST_PAGE, loading: false });
     } catch (error) {
+      if (token !== this.groupsToken) {
+        return;
+      }
       this.setState({ groups: [], loading: false, error: errorMessage(error) });
     }
     this.refresh();
