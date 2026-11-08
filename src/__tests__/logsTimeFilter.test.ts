@@ -3,7 +3,6 @@ import { countSql, logLinesSql, logsTimeFilter } from '../logs-drilldown/sql';
 
 const source = (filterTimeColumn?: string): SignalSource => ({
   uid: 'clickhouse-logs',
-  type: 'grafana-clickhouse-datasource',
   name: 'ClickHouse Logs',
   database: 'default',
   table: 'otel_logs',
