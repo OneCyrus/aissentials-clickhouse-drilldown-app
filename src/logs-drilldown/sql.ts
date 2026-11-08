@@ -89,11 +89,15 @@ export const logsTimeFilter = (source: SignalSource): string =>
     ? `$__timeFilter(${source.filterTimeColumn}) AND $__timeFilter(Timestamp)`
     : '$__timeFilter(Timestamp)';
 
+/** The columns of the logs panel: timestamp, body, level and the attributes as labels. */
+const logLineColumns =
+  `Timestamp AS "timestamp", Body AS "body", ${levelExpression} AS "level", ` +
+  `mapConcat(map('service.name', ServiceName), ResourceAttributes, LogAttributes) AS "labels", ` +
+  `TraceId AS "traceID", SpanId AS "spanID"`;
+
 /** Rows for the logs panel: timestamp, body, level and the attributes as labels. */
 export const logLinesSql = (source: SignalSource, condition: string, limit = 1000, ascending = false): string =>
-  `SELECT Timestamp AS "timestamp", Body AS "body", ${levelExpression} AS "level", ` +
-  `mapConcat(map('service.name', ServiceName), ResourceAttributes, LogAttributes) AS "labels", ` +
-  `TraceId AS "traceID", SpanId AS "spanID" ` +
+  `SELECT ${logLineColumns} ` +
   `FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} ` +
   `ORDER BY Timestamp ${ascending ? 'ASC' : 'DESC'} LIMIT ${limit}`;
 
@@ -102,6 +106,36 @@ export const volumeByLevelSql = (source: SignalSource, condition: string): strin
   `SELECT $__timeInterval(Timestamp) AS time, ${levelExpression} AS level, count() AS count ` +
   `FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} ` +
   `GROUP BY time, level ORDER BY time ASC`;
+
+/**
+ * The landing page's tiles query their data together, one query per kind for the whole page,
+ * instead of two queries per tile: rows carry the tile's value in this column, and the page splits
+ * them per tile.
+ */
+export const LANDING_TILE = '__tile';
+
+/** The landing condition: the primary label is one of the page's values. */
+const landingCondition = (key: string, values: string[], condition: string) =>
+  `${logsExpression(key) || 'ServiceName'} IN (${values.map(quoteString).join(', ')}) AND ${condition}`;
+
+/** Log volume per time bucket and level of every tile of a landing page. */
+export const landingVolumeSql = (source: SignalSource, key: string, values: string[], condition: string): string =>
+  `SELECT $__timeInterval(Timestamp) AS time, toString(${logsExpression(key) || 'ServiceName'}) AS ${LANDING_TILE}, ` +
+  `${levelExpression} AS level, count() AS count FROM ${logsTable(source)} ` +
+  `WHERE ${logsTimeFilter(source)} AND ${landingCondition(key, values, condition)} ` +
+  `GROUP BY time, ${LANDING_TILE}, level ORDER BY time ASC`;
+
+/** The latest lines of every tile of a landing page, at most `perValue` each. */
+export const landingLinesSql = (
+  source: SignalSource,
+  key: string,
+  values: string[],
+  condition: string,
+  perValue = 100
+): string =>
+  `SELECT ${logLineColumns}, toString(${logsExpression(key) || 'ServiceName'}) AS "${LANDING_TILE}" ` +
+  `FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${landingCondition(key, values, condition)} ` +
+  `ORDER BY Timestamp DESC LIMIT ${perValue} BY "${LANDING_TILE}"`;
 
 export const countSql = (source: SignalSource, condition: string): string =>
   `SELECT count() AS count FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition}`;
