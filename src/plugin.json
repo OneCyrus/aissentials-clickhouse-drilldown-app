@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
   "type": "app",
-  "name": "AIssentials ClickHouse Drilldown",
+  "name": "ClickHouse",
   "id": "aissentials-clickhousedrilldown-app",
   "autoEnabled": true,
   "info": {
@@ -28,19 +28,19 @@
   "includes": [
     {
       "type": "page",
-      "name": "Metrics (ClickHouse)",
+      "name": "Metrics",
       "path": "/a/aissentials-clickhousedrilldown-app/metrics",
       "addToNav": true
     },
     {
       "type": "page",
-      "name": "Logs (ClickHouse)",
+      "name": "Logs",
       "path": "/a/aissentials-clickhousedrilldown-app/logs",
       "addToNav": true
     },
     {
       "type": "page",
-      "name": "Traces (ClickHouse)",
+      "name": "Traces",
       "path": "/a/aissentials-clickhousedrilldown-app/traces",
       "addToNav": true
     }
