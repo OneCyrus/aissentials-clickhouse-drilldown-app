@@ -76,22 +76,35 @@ export const keyDisplayName = (key: string): string =>
 
 export const logsTable = (source: SignalSource) => tableSql(source.database, source.table);
 
+/**
+ * The time-range condition of a logs query. Newer exporter versions partition and sort `otel_logs`
+ * on `TimestampTime` (DateTime) and keep the precise `Timestamp` (DateTime64) as a plain column, so
+ * a filter on `Timestamp` alone reads every partition in range: measured 4.4M rows / 52 ms over 24 h
+ * against 105k rows / 11 ms with `TimestampTime`. The data source names that column in
+ * `logs.filterTimeColumn`; when it is set, the query filters on it for pruning and still on
+ * `Timestamp`, so the range stays exact to the millisecond. The configured column must exist.
+ */
+export const logsTimeFilter = (source: SignalSource): string =>
+  source.filterTimeColumn && source.filterTimeColumn !== 'Timestamp'
+    ? `$__timeFilter(${source.filterTimeColumn}) AND $__timeFilter(Timestamp)`
+    : '$__timeFilter(Timestamp)';
+
 /** Rows for the logs panel: timestamp, body, level and the attributes as labels. */
 export const logLinesSql = (source: SignalSource, condition: string, limit = 1000, ascending = false): string =>
   `SELECT Timestamp AS "timestamp", Body AS "body", ${levelExpression} AS "level", ` +
   `mapConcat(map('service.name', ServiceName), ResourceAttributes, LogAttributes) AS "labels", ` +
   `TraceId AS "traceID", SpanId AS "spanID" ` +
-  `FROM ${logsTable(source)} WHERE $__timeFilter(Timestamp) AND ${condition} ` +
+  `FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} ` +
   `ORDER BY Timestamp ${ascending ? 'ASC' : 'DESC'} LIMIT ${limit}`;
 
 /** Log volume per time bucket and level. */
 export const volumeByLevelSql = (source: SignalSource, condition: string): string =>
   `SELECT $__timeInterval(Timestamp) AS time, ${levelExpression} AS level, count() AS count ` +
-  `FROM ${logsTable(source)} WHERE $__timeFilter(Timestamp) AND ${condition} ` +
+  `FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} ` +
   `GROUP BY time, level ORDER BY time ASC`;
 
 export const countSql = (source: SignalSource, condition: string): string =>
-  `SELECT count() AS count FROM ${logsTable(source)} WHERE $__timeFilter(Timestamp) AND ${condition}`;
+  `SELECT count() AS count FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition}`;
 
 /** A line filter of the header: include or exclude text or a regular expression. */
 export interface LineFilter {
@@ -142,14 +155,14 @@ export const detectedKeysSql = (source: SignalSource, kind: 'labels' | 'fields',
   const keys =
     `SELECT concat(${quoteString(prefix)}, tupleElement(kv, 1)) AS key, uniq(tupleElement(kv, 2)) AS cardinality ` +
     `FROM (SELECT arrayJoin(arrayZip(mapKeys(${column}), mapValues(${column}))) AS kv FROM ${logsTable(source)} ` +
-    `WHERE $__timeFilter(Timestamp) AND ${condition}) GROUP BY key`;
+    `WHERE ${logsTimeFilter(source)} AND ${condition}) GROUP BY key`;
   if (kind === 'fields') {
     return `SELECT key, cardinality FROM (${keys}) ORDER BY key ASC LIMIT 500`;
   }
   // service.name and the level are labels too; the service is a column of its own.
   const extra =
-    `SELECT ${quoteString(SERVICE_KEY)} AS key, uniq(ServiceName) AS cardinality FROM ${logsTable(source)} WHERE $__timeFilter(Timestamp) AND ${condition} ` +
-    `UNION ALL SELECT 'level' AS key, uniq(${levelExpression}) AS cardinality FROM ${logsTable(source)} WHERE $__timeFilter(Timestamp) AND ${condition}`;
+    `SELECT ${quoteString(SERVICE_KEY)} AS key, uniq(ServiceName) AS cardinality FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} ` +
+    `UNION ALL SELECT 'level' AS key, uniq(${levelExpression}) AS cardinality FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition}`;
   return `SELECT key, max(cardinality) AS cardinality FROM (${keys} UNION ALL ${extra}) GROUP BY key HAVING cardinality > 0 ORDER BY key ASC LIMIT 500`;
 };
 
@@ -158,7 +171,7 @@ export const valueCountsSql = (source: SignalSource, key: string, condition: str
   const expression = logsExpression(key) || 'ServiceName';
   return (
     `SELECT toString(${expression}) AS value, count() AS count FROM ${logsTable(source)} ` +
-    `WHERE $__timeFilter(Timestamp) AND ${condition} GROUP BY value HAVING value != '' ORDER BY count DESC, value ASC LIMIT ${limit}`
+    `WHERE ${logsTimeFilter(source)} AND ${condition} GROUP BY value HAVING value != '' ORDER BY count DESC, value ASC LIMIT ${limit}`
   );
 };
 
@@ -166,12 +179,12 @@ export const valueCountsSql = (source: SignalSource, key: string, condition: str
 export const volumeByValueSql = (source: SignalSource, key: string, condition: string, limit = 20): string => {
   const expression = `toString(${logsExpression(key) || 'ServiceName'})`;
   const top = limit
-    ? ` AND ${expression} IN (SELECT ${expression} FROM ${logsTable(source)} WHERE $__timeFilter(Timestamp) AND ${condition} ` +
+    ? ` AND ${expression} IN (SELECT ${expression} FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} ` +
       `GROUP BY ${expression} ORDER BY count() DESC LIMIT ${limit})`
     : '';
   return (
     `SELECT $__timeInterval(Timestamp) AS time, ${expression} AS value, count() AS count FROM ${logsTable(source)} ` +
-    `WHERE $__timeFilter(Timestamp) AND ${condition} AND ${expression} != ''${top} GROUP BY time, value ORDER BY time ASC`
+    `WHERE ${logsTimeFilter(source)} AND ${condition} AND ${expression} != ''${top} GROUP BY time, value ORDER BY time ASC`
   );
 };
 
@@ -181,14 +194,14 @@ export const patternsListSql = (source: SignalSource, condition: string, bucketS
   `arraySort(x -> tupleElement(x, 1), groupArray((t, count))) AS series FROM (` +
   `SELECT ${patternExpression} AS pattern, ${levelExpression} AS level, ` +
   `toUnixTimestamp(toStartOfInterval(Timestamp, INTERVAL ${Math.max(1, Math.round(bucketSeconds))} second)) AS t, count() AS count ` +
-  `FROM ${logsTable(source)} WHERE $__timeFilter(Timestamp) AND ${condition} GROUP BY pattern, level, t` +
+  `FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} GROUP BY pattern, level, t` +
   `) GROUP BY pattern ORDER BY total DESC LIMIT 500`;
 
 /** Count over time of the most frequent patterns. */
 export const patternsVolumeSql = (source: SignalSource, condition: string, limit = 20): string =>
   `SELECT $__timeInterval(Timestamp) AS time, ${patternExpression} AS pattern, count() AS count FROM ${logsTable(source)} ` +
-  `WHERE $__timeFilter(Timestamp) AND ${condition} AND ${patternExpression} IN (` +
-  `SELECT ${patternExpression} FROM ${logsTable(source)} WHERE $__timeFilter(Timestamp) AND ${condition} ` +
+  `WHERE ${logsTimeFilter(source)} AND ${condition} AND ${patternExpression} IN (` +
+  `SELECT ${patternExpression} FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} ` +
   `GROUP BY 1 ORDER BY count() DESC LIMIT ${limit}) GROUP BY time, pattern ORDER BY time ASC`;
 
 /** Sample lines of one pattern. */

@@ -47,6 +47,7 @@ import {
   Format,
   frameRows,
   getSignalSource,
+  loadTraceIndex,
   interpolate,
   queryRunner,
   runSql,
@@ -345,9 +346,13 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
     return selectionSql(this.state.metric, this.state.threshold);
   }
 
+  /** Guards buildBody writes: switching tabs or metrics starts a newer request. */
+  private bodyToken = 0;
+
   /** The tab content for the current state. */
   async buildBody(source: SignalSource) {
     const { actionView, metric } = this.state;
+    const token = ++this.bodyToken;
     if (actionView === 'exceptions' && metric !== 'errors') {
       this.setState({ actionView: 'breakdown' });
     }
@@ -363,6 +368,9 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
             selection_total: number;
             baseline_total: number;
           }>(await runSql(this, comparisonSql(source, this.selectionCondition())));
+          if (token !== this.bodyToken) {
+            return;
+          }
           // The attributes that define the selection differ by definition; they are not findings.
           const defining = this.state.metric === 'duration' ? [] : ['status'];
           this.setState({
@@ -372,7 +380,9 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
             loading: false,
           });
         } catch (error) {
-          this.setState({ loading: false, error: errorMessage(error) });
+          if (token === this.bodyToken) {
+            this.setState({ loading: false, error: errorMessage(error) });
+          }
         }
         return;
       case 'exceptions':
@@ -381,9 +391,13 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
           const rows = frameRows<{ time: number; service: string; type: string; message: string; traceId: string }>(
             await runSql(this, exceptionsSql(source))
           );
-          this.setState({ exceptions: groupExceptions(rows), loading: false });
+          if (token === this.bodyToken) {
+            this.setState({ exceptions: groupExceptions(rows), loading: false });
+          }
         } catch (error) {
-          this.setState({ loading: false, error: errorMessage(error) });
+          if (token === this.bodyToken) {
+            this.setState({ loading: false, error: errorMessage(error) });
+          }
         }
         return;
       case 'traceList': {
@@ -394,9 +408,13 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
           const rows = frameRows<SpanRow>(
             await runSql(this, spanListSql(source, condition, this.state.spanListColumns))
           );
-          this.setState({ spans: rows, loading: false });
+          if (token === this.bodyToken) {
+            this.setState({ spans: rows, loading: false });
+          }
         } catch (error) {
-          this.setState({ loading: false, error: errorMessage(error) });
+          if (token === this.bodyToken) {
+            this.setState({ loading: false, error: errorMessage(error) });
+          }
         }
         return;
       }
@@ -527,17 +545,21 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
     });
   }
 
-  openTrace(traceId?: string) {
-    const source = this.getSource();
+  async openTrace(traceId?: string) {
+    this.setState({ traceId, trace: undefined });
+    if (!traceId) {
+      return;
+    }
+    // The trace-id index bounds the lookup when the deployment has one (looked up once).
+    const source = await loadTraceIndex(this, interpolate(this, `\${${VAR_DATASOURCE}}`));
+    if (!source || this.state.traceId !== traceId) {
+      return;
+    }
     this.setState({
-      traceId,
-      trace:
-        source && traceId
-          ? PanelBuilders.traces()
-              .setTitle('')
-              .setData(queryRunner([sqlQuery('A', traceSql(source, traceId), Format.Trace)]))
-              .build()
-          : undefined,
+      trace: PanelBuilders.traces()
+        .setTitle('')
+        .setData(queryRunner([sqlQuery('A', traceSql(source, traceId), Format.Trace)]))
+        .build(),
     });
   }
 

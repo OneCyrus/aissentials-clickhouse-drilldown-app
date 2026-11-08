@@ -234,9 +234,11 @@ const traceIdBounds = (source: SignalSource, traceId: string): string => {
   }
   const index = tableSql(source.database, source.traceIndexTable);
   const id = quoteString(traceId);
+  // A trace missing from the index (e.g. a shorter TTL there) makes the subqueries return NULL, so
+  // the bounds fall back to "any time" and the trace is still found by scanning.
   return (
-    ` AND Timestamp >= (SELECT min(Start) FROM ${index} WHERE TraceId = ${id})` +
-    ` AND Timestamp <= (SELECT max(End) + 1 FROM ${index} WHERE TraceId = ${id})`
+    ` AND Timestamp >= ifNull((SELECT min(Start) FROM ${index} WHERE TraceId = ${id} HAVING count() > 0), toDateTime(0))` +
+    ` AND Timestamp <= ifNull((SELECT max(End) + 1 FROM ${index} WHERE TraceId = ${id} HAVING count() > 0), toDateTime('2105-12-31 00:00:00'))`
   );
 };
 
