@@ -30,7 +30,15 @@ export interface CHConfig {
   defaultDatabase?: string;
   signalType?: SignalType;
   logs?: { defaultDatabase?: string; defaultTable?: string };
-  traces?: { defaultDatabase?: string; defaultTable?: string };
+  traces?: {
+    defaultDatabase?: string;
+    defaultTable?: string;
+    /**
+     * Suffix of the companion trace-id index table (`<traces table>_trace_id_ts`), which maps a
+     * TraceId to its start and end. The data source defaults to `_trace_id_ts`.
+     */
+    traceTimestampTableSuffix?: string;
+  };
   metrics?: CHMetricsConfig;
 }
 

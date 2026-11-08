@@ -18,6 +18,11 @@ export interface SignalSource {
   /** The logs or traces table. */
   table: string;
   /**
+   * The companion trace-id index table (`otel_traces_trace_id_ts`), when the schema has one: it maps
+   * a TraceId to its Start and End, so a trace lookup can bound the scan of the spans table.
+   */
+  traceIndexTable?: string;
+  /**
    * The metric tables, by data point type: only the tables that exist once loadMetricsSource has
    * run, the configured names before.
    */
@@ -76,6 +81,10 @@ export const getSignalSource = (uid: string, signal: SignalType): SignalSource |
     name: settings.name,
     database,
     table,
+    traceIndexTable:
+      signal === 'traces'
+        ? `${table}${config.traces?.traceTimestampTableSuffix?.trim() || '_trace_id_ts'}`
+        : undefined,
     metricTables: resolved?.tables ?? getConfiguredMetricTables(config.metrics),
   };
 };
