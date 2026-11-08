@@ -3,7 +3,6 @@ import { traceSql } from '../traces-drilldown/sql';
 
 const source = (traceIndexTable?: string): SignalSource => ({
   uid: 'clickhouse-traces',
-  type: 'grafana-clickhouse-datasource',
   name: 'ClickHouse Traces',
   database: 'default',
   table: 'otel_traces',
