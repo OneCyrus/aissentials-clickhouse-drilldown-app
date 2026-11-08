@@ -45,7 +45,9 @@ describe('loadMetricsSource', () => {
       }
     );
     const source = await loadMetricsSource(scene, 'with-helpers');
-    expect(runSql).not.toHaveBeenCalled();
+    // One DESC to learn the attribute column type; the tables themselves come from the helper.
+    expect(runSql).toHaveBeenCalledTimes(1);
+    expect(String(runSql.mock.calls[0][1])).toMatch(/^DESC TABLE/);
     expect(source?.database).toBe('metrics_db');
     expect(source?.metricTables).toEqual({ [MetricType.Gauge]: 'g', [MetricType.Sum]: 's' });
   });
@@ -61,9 +63,13 @@ describe('loadMetricsSource', () => {
       [MetricType.Sum]: 'otel_metrics_sum',
       [MetricType.ExponentialHistogram]: 'otel_metrics_exponential_histogram',
     });
-    // Looked up once per data source.
+    // Looked up once per data source: SHOW TABLES plus one DESC for the column shape, and the
+    // second call is served from the cache.
+    const calls = runSql.mock.calls.length;
+    expect(calls).toBe(2);
+    expect(runSql.mock.calls.map((call) => String(call[1]).split(' ')[0])).toEqual(['SHOW', 'DESC']);
     await loadMetricsSource(scene, 'without-helpers');
-    expect(runSql).toHaveBeenCalledTimes(1);
+    expect(runSql).toHaveBeenCalledTimes(calls);
   });
 
   it('retries after a failed lookup', async () => {
