@@ -9,7 +9,7 @@ import { VAR_FILTERS } from '../constants';
 export const FILTERS = `\${${VAR_FILTERS}}`;
 export const VAR_PRIMARY = 'primarySignal';
 export const PRIMARY = `\${${VAR_PRIMARY}}`;
-export const SCOPE = `${PRIMARY} AND ${FILTERS}`;
+const SCOPE = `${PRIMARY} AND ${FILTERS}`;
 
 export type MetricType = 'rate' | 'errors' | 'duration';
 
@@ -49,7 +49,7 @@ export const primarySignals = [
 export const ERROR_CONDITION = "StatusCode IN ('Error', 'STATUS_CODE_ERROR')";
 export const SERVICE_KEY = 'resource.service.name';
 
-export const intrinsics: Record<string, string> = {
+const intrinsics: Record<string, string> = {
   name: 'SpanName',
   kind: 'SpanKind',
   status: 'StatusCode',
@@ -110,7 +110,7 @@ export const rateSql = (source: SignalSource, errors: boolean): string =>
   `GROUP BY time ORDER BY time ASC`;
 
 /** Duration buckets: powers of two in seconds, labelled by upper bound like a Prometheus `le`. */
-export const durationBucketExpression = 'pow(2, ceil(log2(greatest(Duration, 1000) / 1e9)))';
+const durationBucketExpression = 'pow(2, ceil(log2(greatest(Duration, 1000) / 1e9)))';
 
 /** Span counts per time bucket and duration bucket, for the duration heatmap. */
 export const durationHeatmapSql = (source: SignalSource): string =>

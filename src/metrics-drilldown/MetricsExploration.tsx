@@ -65,7 +65,7 @@ const GROUPS_FIRST_PAGE = 20;
 const GROUPS_STEP = 10;
 const RECENT_KEY = 'recent-metrics';
 
-export type GridLayout = 'grid' | 'rows';
+type GridLayout = 'grid' | 'rows';
 type SortBy = 'default' | 'alphabetical' | 'alphabetical-reversed';
 type SidebarSection = 'filters-prefix' | 'filters-suffix' | 'filters-type' | 'labels';
 
@@ -99,7 +99,7 @@ interface MetricsExplorationState extends SceneObjectState {
 }
 
 /** Kinds shown in the sidebar: sums split into counters and up-down counters. */
-export const metricKind = (entry: MetricCatalogEntry): string =>
+const metricKind = (entry: MetricCatalogEntry): string =>
   entry.type === MetricType.Sum ? (entry.isMonotonic ? 'counter' : 'updowncounter') : entry.type;
 
 const kindLabels: Record<string, string> = {

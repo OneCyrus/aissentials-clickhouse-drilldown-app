@@ -30,7 +30,7 @@ class ClickHouseDataSourceVariable extends DataSourceVariable {
   }
 }
 
-export const dataSourceVariable = (signal: SignalType): DataSourceVariable =>
+const dataSourceVariable = (signal: SignalType): DataSourceVariable =>
   new ClickHouseDataSourceVariable({
     name: VAR_DATASOURCE,
     label: 'Data source',
