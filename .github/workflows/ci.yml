@@ -1,0 +1,100 @@
+# Checks every pull request and push to main. A push to main also publishes a preview build: a
+# workflow artifact, and the rolling "preview" pre-release on GitHub, which always holds the
+# latest build of main.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run prettier:check
+      - run: npm run spellcheck
+      - run: npm run test:ci
+
+      # Preview version: the next patch after the latest release tag (or package.json's version
+      # before the first release), then -preview.<run number>, e.g. 1.0.1-preview.42.
+      - name: Set preview version
+        id: version
+        run: |
+          latest=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          if [ -n "$latest" ]; then
+            IFS=. read -r major minor patch <<< "${latest#v}"
+            base="$major.$minor.$((patch + 1))"
+          else
+            base=$(node -p "require('./package.json').version")
+          fi
+          version="$base-preview.${{ github.run_number }}"
+          npm version "$version" --no-git-tag-version --allow-same-version
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - run: npm run build
+
+      - name: Package
+        id: package
+        run: ./scripts/package.sh artifacts >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aissentials-clickhousedrilldown-app-${{ steps.version.outputs.version }}
+          path: artifacts/
+          if-no-files-found: error
+
+  preview:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: preview-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: aissentials-clickhousedrilldown-app-${{ needs.build.outputs.version }}
+          path: artifacts
+
+      - name: Publish the rolling preview pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release delete preview --cleanup-tag --yes 2>/dev/null || true
+          cat > notes.md <<NOTES
+          Preview build **$VERSION** of \`main\` at ${GITHUB_SHA::7}, built by [run ${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+          Not signed: allow it with \`allow_loading_unsigned_plugins = aissentials-clickhousedrilldown-app\` in \`grafana.ini\`. Official versions are on the [releases page](${{ github.server_url }}/${{ github.repository }}/releases/latest).
+          NOTES
+          gh release create preview artifacts/* \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Preview $VERSION" \
+            --notes-file notes.md

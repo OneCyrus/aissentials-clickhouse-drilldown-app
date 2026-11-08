@@ -9,8 +9,19 @@
     "author": { "name": "AIssentials" },
     "keywords": ["clickhouse", "opentelemetry", "drilldown", "metrics", "logs", "traces"],
     "logos": { "small": "img/logo.svg", "large": "img/logo.svg" },
-    "links": [],
-    "screenshots": [],
+    "links": [
+      { "name": "Website", "url": "https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app" },
+      { "name": "Issues", "url": "https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/issues" },
+      { "name": "License", "url": "https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/blob/main/LICENSE" }
+    ],
+    "screenshots": [
+      { "name": "Metrics overview", "path": "img/screenshots/metrics-overview.png" },
+      { "name": "Metric with heatmap and breakdown", "path": "img/screenshots/metrics-heatmap.png" },
+      { "name": "Logs by service", "path": "img/screenshots/logs-services.png" },
+      { "name": "Logs of a service", "path": "img/screenshots/logs-service.png" },
+      { "name": "Traces overview", "path": "img/screenshots/traces-overview.png" },
+      { "name": "Trace duration breakdown", "path": "img/screenshots/traces-duration.png" }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },

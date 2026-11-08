@@ -1,0 +1,89 @@
+# Releases an official version when a tag vX.Y.Z is pushed: the version comes from the tag, the
+# archive is signed when the GRAFANA_ACCESS_POLICY_TOKEN secret is set, and a GitHub release is
+# created with the archive, its checksums and the tag's CHANGELOG.md section as notes.
+#
+#   git tag v1.2.3 && git push origin v1.2.3
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:ci
+
+      - name: Set version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          npm version "$version" --no-git-tag-version --allow-same-version
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - run: npm run build
+
+      - name: Sign
+        env:
+          GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+        run: |
+          if [ -n "$GRAFANA_ACCESS_POLICY_TOKEN" ]; then
+            npm run sign
+          else
+            echo "::warning::GRAFANA_ACCESS_POLICY_TOKEN is not set, the release is not signed."
+          fi
+
+      - name: Package
+        id: package
+        run: ./scripts/package.sh artifacts >> "$GITHUB_OUTPUT"
+
+      # Build provenance, which Grafana's plugin submission asks for. GitHub offers attestations
+      # for public repositories (private ones need GitHub Enterprise Cloud).
+      - name: Attest build provenance
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+
+      - name: Release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '
+            $0 ~ "^## " { if (found) exit; found = ($2 == v || $2 == "v" v) ; next }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "Version $VERSION." > notes.md; fi
+          cat notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --title "v$VERSION" \
+            --notes-file notes.md \
+            --generate-notes \
+            --verify-tag \
+            --latest
