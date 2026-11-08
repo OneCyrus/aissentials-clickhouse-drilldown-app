@@ -1,12 +1,12 @@
 import { EmbeddedScene } from '@grafana/scenes';
 import { MetricLabel } from 'clickhouse/types';
 import { buildAppScene, filtersVariable, otherFiltersSql } from '../shared/scene';
-import { frameRows, hasMetricTables, interpolate, loadMetricsSource, runSql } from '../shared';
+import { frameRows, getSignalSource, hasMetricTables, interpolate, loadMetricsSource, runSql } from '../shared';
 import { VAR_DATASOURCE } from '../constants';
 import {
   labelKeysSql,
   labelValuesSql,
-  metricLabelExpression,
+  sourceLabelExpression,
   parseMetricLabelId,
   toMetricLabels,
   getMetricLabelId,
@@ -23,14 +23,16 @@ const sourceLabels: Record<MetricLabel['source'], string> = {
 export const buildMetricsScene = (): EmbeddedScene => {
   const filters = filtersVariable({
     placeholder: 'Filter by label values',
-    expressionOf: metricLabelExpression,
+    // The selected data source's table shape (JSON or Map attributes), once resolved.
+    expressionOf: (key, variable) =>
+      sourceLabelExpression(getSignalSource(interpolate(variable, `\${${VAR_DATASOURCE}}`), 'metrics'))(key),
     getKeys: async (variable) => {
       const source = await loadMetricsSource(variable, interpolate(variable, `\${${VAR_DATASOURCE}}`));
       if (!source || !hasMetricTables(source)) {
         return [];
       }
       const rows = frameRows<{ source: string; key: string }>(
-        await runSql(variable, labelKeysSql(source, otherFiltersSql(variable, '', metricLabelExpression)))
+        await runSql(variable, labelKeysSql(source, otherFiltersSql(variable, '', sourceLabelExpression(source))))
       );
       return toMetricLabels(rows).map((label) => ({
         text: getMetricLabelId(label),
@@ -45,7 +47,10 @@ export const buildMetricsScene = (): EmbeddedScene => {
         return [];
       }
       const rows = frameRows<{ value: string }>(
-        await runSql(variable, labelValuesSql(source, label, otherFiltersSql(variable, key, metricLabelExpression)))
+        await runSql(
+          variable,
+          labelValuesSql(source, label, otherFiltersSql(variable, key, sourceLabelExpression(source)))
+        )
       );
       return rows.map((row) => row.value);
     },

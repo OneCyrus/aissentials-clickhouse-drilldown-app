@@ -1,7 +1,13 @@
 import { DataSourceInstanceSettings } from '@grafana/data';
 import { getDataSourceSrv } from '@grafana/runtime';
 import { SceneObject, VariableValueOption } from '@grafana/scenes';
-import { getConfiguredMetricTables, MetricTables, resolveMetricTables } from 'clickhouse/metrics';
+import {
+  getConfiguredMetricTables,
+  getMetricTableFeatures,
+  MetricTableFeatures,
+  MetricTables,
+  resolveMetricTables,
+} from 'clickhouse/metrics';
 import { CHConfig, MetricType, SignalType } from 'clickhouse/types';
 import { CLICKHOUSE_DS_TYPES } from '../constants';
 import { Format, frameRows, runSql } from './query';
@@ -31,6 +37,11 @@ export interface SignalSource {
    * it maps a TraceId to its Start and End, so a trace lookup can bound the scan of the spans table.
    */
   traceIndexTable?: string;
+  /**
+   * What the metric tables support, detected from their columns once the tables are resolved:
+   * the exporter can write attribute columns as `JSON` instead of `Map`, which reads differently.
+   */
+  metricFeatures?: MetricTableFeatures;
   /**
    * The metric tables, by data point type: only the tables that exist once loadMetricsSource has
    * run, the configured names before.
@@ -108,6 +119,7 @@ export const getSignalSource = (uid: string, signal: SignalType): SignalSource |
     filterTimeColumn: signal === 'logs' ? config.logs?.filterTimeColumn?.trim() || undefined : undefined,
     traceIndexTable: signal === 'traces' ? traceIndexes.get(traceIndexKey(uid, database, table, config)) : undefined,
     metricTables: resolved?.tables ?? getConfiguredMetricTables(config.metrics),
+    metricFeatures: resolved?.features,
   };
 };
 
@@ -157,6 +169,7 @@ interface MetricsDataSourceHelpers {
 interface ResolvedMetrics {
   database: string;
   tables: MetricTables;
+  features: MetricTableFeatures;
 }
 
 const resolvedMetrics = new Map<string, ResolvedMetrics>();
@@ -188,7 +201,22 @@ export const loadMetricsSource = async (sceneObject: SceneObject, uid: string): 
                 await runSql(sceneObject, `SHOW TABLES FROM "${database.replace(/"/g, '""')}"`, Format.Table, uid)
               ).map((row) => String(row.name))
             );
-      const result = { database, tables };
+      // One DESC per distinct table: the columns of a metric table are what tells a JSON
+      // attribute column from a Map one, and the exporter writes the same shape for every kind.
+      const features: MetricTableFeatures = {};
+      const firstTable = Object.values(tables)[0];
+      if (firstTable) {
+        try {
+          features.jsonAttributes = getMetricTableFeatures(
+            frameRows<{ name: string; type: string }>(
+              await runSql(sceneObject, `DESC TABLE ${tableSql(database, firstTable)}`, Format.Table, uid)
+            ).map((row) => ({ name: String(row.name), type: String(row.type) }))
+          ).jsonAttributes;
+        } catch {
+          // Without the column types the Map form stays: correct for Map tables, as before detection.
+        }
+      }
+      const result = { database, tables, features };
       resolvedMetrics.set(uid, result);
       return result;
     })();

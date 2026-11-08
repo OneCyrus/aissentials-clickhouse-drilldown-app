@@ -35,11 +35,20 @@ export const parseMetricLabelId = (id: string): MetricLabel | undefined => {
   return metricColumnLabels.find((label) => label.key === id);
 };
 
-/** Filter keys are label ids such as `resource.k8s.pod.name`. */
-export const metricLabelExpression = (key: string): string | undefined => {
+/**
+ * Filter keys are label ids such as `resource.k8s.pod.name`. Attribute columns are read as JSON
+ * when the exporter writes them that way (`jsonAttributes`), as Map otherwise.
+ */
+export const metricLabelExpression = (key: string, jsonAttributes = false): string | undefined => {
   const label = parseMetricLabelId(key);
-  return label ? getMetricLabelExpression(label) : undefined;
+  return label ? getMetricLabelExpression(label, jsonAttributes) : undefined;
 };
+
+/** The filter expression of a key for a resolved metrics source. */
+export const sourceLabelExpression =
+  (source: SignalSource | undefined) =>
+  (key: string): string | undefined =>
+    metricLabelExpression(key, source?.metricFeatures?.jsonAttributes ?? false);
 
 const tablesOf = (source: SignalSource, entry?: Pick<MetricCatalogEntry, 'type'>): Array<[MetricType, string]> =>
   metricTypes
@@ -61,12 +70,15 @@ export const catalogSql = (source: SignalSource, condition: string): string => {
 
 /** Label keys of the metrics matching the filters, or of one metric. */
 export const labelKeysSql = (source: SignalSource, condition: string, metric?: MetricCatalogEntry): string => {
+  // A JSON column has no mapKeys(); its keys come from the path table ClickHouse keeps for it.
+  const json = source.metricFeatures?.jsonAttributes ?? false;
+  const keysOf = (column: string) => (json ? `JSONAllPaths(${column})` : `mapKeys(${column})`);
   const selects = tablesOf(source, metric).map(
     ([, table]) =>
       `SELECT arrayJoin(arrayConcat(` +
-      `arrayMap(k -> ('resource', k), groupUniqArrayArray(500)(mapKeys(ResourceAttributes))), ` +
-      `arrayMap(k -> ('attribute', k), groupUniqArrayArray(500)(mapKeys(Attributes))), ` +
-      `arrayMap(k -> ('scope', k), groupUniqArrayArray(100)(mapKeys(ScopeAttributes))))) AS label ` +
+      `arrayMap(k -> ('resource', k), groupUniqArrayArray(500)(${keysOf('ResourceAttributes')})), ` +
+      `arrayMap(k -> ('attribute', k), groupUniqArrayArray(500)(${keysOf('Attributes')})), ` +
+      `arrayMap(k -> ('scope', k), groupUniqArrayArray(100)(${keysOf('ScopeAttributes')})))) AS label ` +
       `FROM ${table} WHERE ${discoveryCondition}${metric ? ` AND MetricName = ${quoteString(metric.name)}` : ''} AND ${condition}`
   );
   return (
@@ -82,7 +94,7 @@ export const labelValuesSql = (
   condition: string,
   metric?: MetricCatalogEntry
 ): string => {
-  const expression = getMetricLabelExpression(label);
+  const expression = getMetricLabelExpression(label, source.metricFeatures?.jsonAttributes);
   const selects = tablesOf(source, metric).map(
     ([, table]) =>
       `SELECT toString(${expression}) AS value FROM ${table} WHERE ${discoveryCondition}` +
@@ -123,7 +135,9 @@ export const metricSql = (source: SignalSource, query: MetricQuery): string =>
   generateMetricsQuery({
     database: source.database,
     table: metricTableOf(source, query.type),
-    metric: { ...query, condition: FILTERS },
+    // The table's own shape decides how attribute columns are read: the exporter writes them as
+    // JSON with `json: true` and as Map otherwise, and a JSON column rejects the Map syntax.
+    metric: { ...query, condition: FILTERS, jsonAttributes: source.metricFeatures?.jsonAttributes ?? false },
   });
 
 /** Name tokens: a metric name split on any non-alphanumeric character. */
@@ -180,7 +194,7 @@ export const searchMatcher = (text: string): ((name: string) => boolean) => {
 
 /** For each value of a label, the metrics that carry it (the "Group by labels" list). */
 export const metricsByLabelValueSql = (source: SignalSource, label: MetricLabel, condition: string): string => {
-  const expression = getMetricLabelExpression(label);
+  const expression = getMetricLabelExpression(label, source.metricFeatures?.jsonAttributes);
   const selects = tablesOf(source).map(
     ([type, table]) =>
       `SELECT toString(${expression}) AS value, MetricName AS name, ${quoteString(type)} AS type FROM ${table} ` +
