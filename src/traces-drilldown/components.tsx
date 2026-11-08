@@ -12,7 +12,7 @@ import {
   useStyles2,
   useTheme2,
 } from '@grafana/ui';
-import { store } from '../shared';
+import { store, tableStyle } from '../shared';
 import { defaultFavorites, normalizeMessage } from './sql';
 
 const FAVORITES_KEY = 'traces.favorites.attributes';
@@ -150,17 +150,17 @@ export interface ComparisonAttribute {
  * Turns selection/baseline counts into shares of each population and ranks attributes by their
  * largest difference, as Traces Drilldown does with Tempo's compare().
  */
-export const toComparison = (
-  rows: Array<{
-    key: string;
-    value: string;
-    selection: number;
-    baseline: number;
-    selection_total: number;
-    baseline_total: number;
-  }>,
-  rootSpansOnly: boolean
-): ComparisonAttribute[] => {
+/** A row of the comparison query: the span counts of one attribute value in both populations. */
+export type ComparisonRow = {
+  key: string;
+  value: string;
+  selection: number;
+  baseline: number;
+  selection_total: number;
+  baseline_total: number;
+};
+
+export const toComparison = (rows: ComparisonRow[], rootSpansOnly: boolean): ComparisonAttribute[] => {
   const byKey = new Map<string, typeof rows>();
   rows.forEach((row) => byKey.set(row.key, [...(byKey.get(row.key) || []), row]));
   return Array.from(byKey.entries())
@@ -474,22 +474,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
   }),
   barTrack: css({ display: 'flex', flexDirection: 'column', gap: 1 }),
   bar: css({ height: 7, minWidth: 1, borderRadius: 1 }),
-  table: css({
-    width: '100%',
-    borderCollapse: 'collapse',
-    'th, td': {
-      padding: theme.spacing(0.5, 1),
-      borderBottom: `1px solid ${theme.colors.border.weak}`,
-      textAlign: 'left',
-      verticalAlign: 'top',
-    },
-    th: {
-      fontWeight: theme.typography.fontWeightMedium,
-      position: 'sticky',
-      top: 0,
-      background: theme.colors.background.primary,
-    },
-  }),
+  table: tableStyle(theme),
   number: css({ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }),
   error: css({ color: theme.colors.error.text }),
   exceptionType: css({ display: 'flex', alignItems: 'center', gap: theme.spacing(0.5) }),

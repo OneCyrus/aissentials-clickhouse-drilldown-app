@@ -40,6 +40,7 @@ import {
   interpolate,
   loadMetricsSource,
   runSql,
+  searchMatches,
   SignalSource,
   store,
   errorMessage,
@@ -53,7 +54,6 @@ import {
   metricsByLabelValueSql,
   metricSuffix,
   parseMetricLabelId,
-  searchMatcher,
   toMetricLabels,
 } from './sql';
 import { metricGridItem } from './panels';
@@ -347,7 +347,7 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
   /** The catalog filtered by search and sidebar selections, except the one named. */
   filtered(except?: 'prefix' | 'suffix' | 'type'): MetricCatalogEntry[] {
     const { catalog, search, prefixes, suffixes, types } = this.state;
-    const matches = searchMatcher(search);
+    const matches = searchMatches(search);
     return catalog.filter(
       (entry) =>
         matches(entry.name) &&

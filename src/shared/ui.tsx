@@ -48,6 +48,25 @@ export function Spacer() {
   return <div className={styles.spacer} />;
 }
 
+/** The style of the apps' data tables: full width, row lines, a sticky header. */
+export const tableStyle = (theme: GrafanaTheme2) =>
+  css({
+    width: '100%',
+    borderCollapse: 'collapse',
+    'th, td': {
+      padding: theme.spacing(0.5, 1),
+      borderBottom: `1px solid ${theme.colors.border.weak}`,
+      textAlign: 'left',
+      verticalAlign: 'top',
+    },
+    th: {
+      position: 'sticky',
+      top: 0,
+      background: theme.colors.background.primary,
+      fontWeight: theme.typography.fontWeightMedium,
+    },
+  });
+
 const getStyles = (theme: GrafanaTheme2) => ({
   toolbar: css({
     display: 'flex',
