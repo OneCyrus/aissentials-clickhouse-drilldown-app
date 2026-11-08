@@ -26,9 +26,7 @@ import { datasourceRef, FilterLike, filtersSql } from './index';
 class ClickHouseDataSourceVariable extends DataSourceVariable {
   getValueOptions(args: Parameters<DataSourceVariable['getValueOptions']>[0]) {
     void args;
-    const options = getDataSourceOptions();
-    this.setState({ options, loading: false });
-    return of(options);
+    return of(getDataSourceOptions());
   }
 }
 

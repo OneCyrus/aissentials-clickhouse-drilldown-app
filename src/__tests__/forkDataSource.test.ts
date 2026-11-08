@@ -24,9 +24,17 @@ describe('fork data sources', () => {
     list.mockReset();
     const catalog = source('logs', 'grafana-clickhouse-datasource', 'logs');
     const fork = source('metrics', 'onecyrus-clickhouse-datasource', 'metrics');
-    list.mockImplementation(({ type }: { type: string }) =>
-      type === fork.type ? [fork] : type === catalog.type ? [catalog] : []
-    );
+    // Like Grafana, getList also returns the built-in Grafana data source for every call.
+    const grafana = source('grafana', 'grafana', '');
+    list.mockImplementation(({ type }: { type: string }) => [
+      ...(type === fork.type ? [fork] : type === catalog.type ? [catalog] : []),
+      grafana,
+    ]);
+  });
+
+  it('lists only ClickHouse data sources, each once', () => {
+    expect(getClickHouseDataSources().map((settings) => settings.uid)).toEqual(['logs', 'metrics']);
+    expect(getDataSourceOptions().map((option) => option.value)).toEqual(['logs', 'metrics']);
   });
 
   it('queries each accepted plugin id instead of only the catalog one', () => {

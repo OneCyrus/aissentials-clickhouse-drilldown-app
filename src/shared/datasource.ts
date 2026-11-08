@@ -42,8 +42,16 @@ export const isClickHouseDataSource = (type: string | undefined): boolean =>
 /** ClickHouse data sources, those set up for the signal (single-source mode) first. */
 export const getClickHouseDataSources = (signal?: SignalType): DataSourceInstanceSettings[] => {
   // getList takes one plugin id, so ask per id: a fork has its own id and would otherwise
-  // be invisible to the app.
-  const all = CLICKHOUSE_DS_TYPES.flatMap((type) => getDataSourceSrv().getList({ type }));
+  // be invisible to the app. getList also returns Grafana's built-in data source, so keep only
+  // ClickHouse data sources, each once.
+  const seen = new Set<string>();
+  const all = CLICKHOUSE_DS_TYPES.flatMap((type) => getDataSourceSrv().getList({ type })).filter((settings) => {
+    if (!isClickHouseDataSource(settings.type) || seen.has(settings.uid)) {
+      return false;
+    }
+    seen.add(settings.uid);
+    return true;
+  });
   if (!signal) {
     return all;
   }
