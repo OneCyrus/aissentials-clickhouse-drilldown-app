@@ -1,4 +1,4 @@
-import { DataFrame, dataFrameFromJSON, DataFrameJSON } from '@grafana/data';
+import { DataFrame, dataFrameFromJSON, DataFrameJSON, rangeUtil } from '@grafana/data';
 import { getBackendSrv } from '@grafana/runtime';
 import { SceneDataQuery, SceneObject, SceneQueryRunner, sceneGraph } from '@grafana/scenes';
 import { lastValueFrom } from 'rxjs';
@@ -46,10 +46,13 @@ export const runSql = async (
   sceneObject: SceneObject,
   sql: string,
   format: Format = Format.Table,
-  datasourceUid?: string
+  datasourceUid?: string,
+  /** For time series: the number of buckets $__timeInterval and $__interval_s aim at, like a panel's. */
+  maxDataPoints?: number
 ): Promise<DataFrame[]> => {
   const uid = datasourceUid || interpolate(sceneObject, `\${${VAR_DATASOURCE}}`);
   const range = sceneGraph.getTimeRange(sceneObject).state.value;
+  const interval = maxDataPoints ? rangeUtil.calculateInterval(range, maxDataPoints) : undefined;
   const response = await lastValueFrom(
     getBackendSrv().fetch<{
       results: Record<string, { frames?: DataFrameJSON[]; error?: string }>;
@@ -66,6 +69,7 @@ export const runSql = async (
             editorType: 'sql',
             rawSql: interpolate(sceneObject, sql),
             format,
+            ...(interval ? { intervalMs: interval.intervalMs, maxDataPoints } : {}),
           },
         ],
       },

@@ -1,5 +1,5 @@
 import { DataFrame, FieldType } from '@grafana/data';
-import { PanelBuilders, SceneDataProvider, SceneDataTransformer, SceneQueryRunner } from '@grafana/scenes';
+import { PanelBuilders, SceneDataProvider, SceneDataTransformer } from '@grafana/scenes';
 import { LegendDisplayMode, StackingMode, TooltipDisplayMode } from '@grafana/schema';
 import { map } from 'rxjs';
 import { levelColors } from '../shared';
@@ -8,7 +8,7 @@ import { levelColors } from '../shared';
  * Names each series by its label values and colors log levels like Logs Drilldown. The backend
  * returns long rows (time, value, count) as one frame with a field per value.
  */
-export const namedSeries = (runner: SceneQueryRunner, colorLevels = false) =>
+export const namedSeries = (runner: SceneDataProvider, colorLevels = false) =>
   new SceneDataTransformer({
     $data: runner,
     transformations: [

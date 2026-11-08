@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { css } from '@emotion/css';
-import { GrafanaTheme2 } from '@grafana/data';
+import { DataFrame, GrafanaTheme2, LoadingState } from '@grafana/data';
 import {
   AdHocFiltersVariable,
   PanelBuilders,
@@ -37,6 +37,7 @@ import {
   useStyles2,
 } from '@grafana/ui';
 import { VAR_DATASOURCE, VAR_FILTERS } from '../constants';
+import { tileLines, tileVolume } from './landing';
 import {
   Control,
   copyCurrentUrl,
@@ -46,7 +47,6 @@ import {
   getSignalSource,
   interpolate,
   queryRunner,
-  quoteString,
   runSql,
   SeriesSort,
   seriesName,
@@ -64,13 +64,14 @@ import {
   ALL_FILTERS,
   AppliedPattern,
   countSql,
+  landingLinesSql,
+  landingVolumeSql,
   detectedKeysSql,
   FILTERS,
   keyDisplayName,
   levelOrder,
   levelsSql,
   LineFilter,
-  logsExpression,
   lineFiltersSql,
   logLinesSql,
   patternsSql,
@@ -326,16 +327,19 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     if (!source) {
       return;
     }
-    const { primaryLabel, page, pageSize } = this.state;
+    const { page, pageSize } = this.state;
     const favorites = this.favorites();
     const values = this.landingValues().slice(page * pageSize, (page + 1) * pageSize);
-    const expression = (value: string) => `${logsExpression(primaryLabel) || 'ServiceName'} = ${quoteString(value)}`;
+    const timeRange = sceneGraph.getTimeRange(this).state.value;
+    // Every tile shows its slice of two queries for the whole page (see loadLandingData).
+    const volumes = new Map<string, SceneDataNode>();
+    const lines = new Map<string, SceneDataNode>();
     const children = values.map((value) => {
-      const condition = `${expression(value)} AND ${FILTERS}`;
-      const volume = stackedBars(
-        namedSeries(queryRunner([sqlQuery('A', volumeByLevelSql(source, condition))], 100), true),
-        'right'
-      )
+      const volumeData = new SceneDataNode({ data: { state: LoadingState.Loading, series: [], timeRange } });
+      const linesData = new SceneDataNode({ data: { state: LoadingState.Loading, series: [], timeRange } });
+      volumes.set(value, volumeData);
+      lines.set(value, linesData);
+      const volume = stackedBars(namedSeries(volumeData, true), 'right')
         .setTitle(value)
         .setHeaderActions(
           <>
@@ -370,7 +374,7 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
       const logs = PanelBuilders.logs()
         .setTitle('')
         .setHoverHeader(true)
-        .setData(queryRunner([sqlQuery('A', logLinesSql(source, condition, 100), Format.Logs)]))
+        .setData(linesData)
         .setOption('showTime', true)
         .setOption('enableLogDetails', false)
         .build();
@@ -386,6 +390,56 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     this.setState({
       body: new SceneCSSGridLayout({ templateColumns: '1fr', autoRows: '200px', isLazy: true, children }),
     });
+    this.loadLandingData(source, values, volumes, lines);
+  }
+
+  private landingToken = 0;
+
+  /**
+   * The volume and the latest lines of all tiles of the page: one query each, split per tile,
+   * instead of two queries per tile. A newer page (search, paging, refresh) supersedes it.
+   */
+  async loadLandingData(
+    source: SignalSource,
+    values: string[],
+    volumes: Map<string, SceneDataNode>,
+    lines: Map<string, SceneDataNode>
+  ) {
+    const token = ++this.landingToken;
+    if (!values.length) {
+      return;
+    }
+    const { primaryLabel } = this.state;
+    const timeRange = sceneGraph.getTimeRange(this).state.value;
+    const fill = (nodes: Map<string, SceneDataNode>, split: (frames: DataFrame[], value: string) => DataFrame[]) => ({
+      done: (frames: DataFrame[]) => {
+        if (token === this.landingToken) {
+          nodes.forEach((node, value) =>
+            node.setState({ data: { state: LoadingState.Done, series: split(frames, value), timeRange } })
+          );
+        }
+      },
+      failed: (error: unknown) => {
+        if (token === this.landingToken) {
+          const errors = [{ message: errorMessage(error) }];
+          nodes.forEach((node) =>
+            node.setState({ data: { state: LoadingState.Error, series: [], timeRange, errors } })
+          );
+        }
+      },
+    });
+    const volume = fill(volumes, tileVolume);
+    const line = fill(lines, tileLines);
+    await Promise.all([
+      runSql(this, landingVolumeSql(source, primaryLabel, values, FILTERS), Format.TimeSeries, undefined, 100).then(
+        volume.done,
+        volume.failed
+      ),
+      runSql(this, landingLinesSql(source, primaryLabel, values, FILTERS, 100), Format.Logs).then(
+        line.done,
+        line.failed
+      ),
+    ]);
   }
 
   includeLabelValue(value: string) {
