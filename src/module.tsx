@@ -1,6 +1,7 @@
 import { AppPlugin, PluginExtensionPanelContext } from '@grafana/data';
 import { App } from './components/App';
-import { CLICKHOUSE_DS_TYPE, prefixRoute, ROUTES } from './constants';
+import { prefixRoute, ROUTES } from './constants';
+import { isClickHouseDataSource } from './shared/datasource';
 
 interface CHQueryLike {
   datasource?: { type?: string; uid?: string };
@@ -26,7 +27,7 @@ const urlTime = (time: string | { valueOf(): number }): string => {
  */
 export const getDrilldownPath = (context?: Partial<PluginExtensionPanelContext>): string | undefined => {
   const queries = (context?.targets || []) as CHQueryLike[];
-  const query = queries.find((target) => target.datasource?.type === CLICKHOUSE_DS_TYPE);
+  const query = queries.find((target) => isClickHouseDataSource(target.datasource?.type));
   if (!query) {
     return undefined;
   }
