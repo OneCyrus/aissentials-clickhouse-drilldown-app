@@ -34,6 +34,7 @@ import { MetricLabel, MetricType } from 'clickhouse/types';
 import { VAR_DATASOURCE, VAR_FILTERS } from '../constants';
 import {
   Control,
+  Format,
   frameRows,
   getSignalSource,
   DONE,
@@ -97,6 +98,8 @@ interface MetricsExplorationState extends SceneObjectState {
   sidebar?: SidebarSection;
   catalog: MetricCatalogEntry[];
   labels: MetricLabel[];
+  /** The label names of the "Group by labels" section, loaded while it is open. */
+  labelsLoad: LoadState;
   /** The metric list (catalog and label names) of the data source, filters and time range. */
   catalogLoad: LoadState;
   /** The "Group by labels" list; done when no label is selected. */
@@ -159,6 +162,9 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
   });
 
   private catalogRequest = new LatestRequest();
+  private labelsRequest = new LatestRequest();
+  /** What the label names in state were loaded for: data source, filters and time range. */
+  private labelsKey?: string;
   /**
    * Switching labels (or clearing the grouping) while a query is in flight otherwise lets the
    * previous label's values land a moment later, with Select buttons filtering on a label that is
@@ -179,6 +185,7 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
       groupsShown: GROUPS_FIRST_PAGE,
       catalog: [],
       labels: [],
+      labelsLoad: DONE,
       catalogLoad: LOADING,
       groupsLoad: DONE,
       groupGrids: [],
@@ -287,10 +294,9 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
         });
         return;
       }
-      const [rows, keys] = await Promise.all([
-        runSql(this, catalogSql(source, FILTERS)),
-        runSql(this, labelKeysSql(source, FILTERS)).catch(() => []),
-      ]);
+      const rows = await runSql(this, catalogSql(source, FILTERS), Format.Table, {
+        requestId: this.catalogRequest.requestId(),
+      });
       if (!isCurrent()) {
         return;
       }
@@ -307,11 +313,9 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
         description: row.description,
         isMonotonic: Boolean(Number(row.monotonic)),
       }));
-      this.setState({
-        catalog,
-        labels: toMetricLabels(frameRows<{ source: string; key: string }>(keys)),
-        catalogLoad: DONE,
-      });
+      this.setState({ catalog, catalogLoad: DONE });
+      // The label names are only shown in the "Group by labels" section: loaded when it is open.
+      this.loadLabels();
       if (this.state.groupBy) {
         this.loadGroups();
       } else {
@@ -326,6 +330,50 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
         this.setState({ catalogLoad: loadFailed(error) });
       }
     }
+  }
+
+  /**
+   * The label names of the "Group by labels" sidebar section. They take a scan of every metric
+   * table, so they load only while the section is open, and again only when the data source,
+   * filters or time range changed since (the filter bar suggests keys with a query of its own).
+   */
+  async loadLabels() {
+    const source = this.getSource();
+    // Before the catalog is loaded the tables are not resolved yet; its load calls this again.
+    if (
+      this.state.sidebar !== 'labels' ||
+      this.state.catalogLoad.status !== 'done' ||
+      !source ||
+      !hasMetricTables(source)
+    ) {
+      return;
+    }
+    const range = sceneGraph.getTimeRange(this).state.value;
+    const key = [source.uid, interpolate(this, FILTERS), range.from.valueOf(), range.to.valueOf()].join('|');
+    if (key === this.labelsKey) {
+      return;
+    }
+    const isCurrent = this.labelsRequest.start();
+    this.setState({ labelsLoad: LOADING });
+    try {
+      const rows = await runSql(this, labelKeysSql(source, FILTERS), Format.Table, {
+        requestId: this.labelsRequest.requestId(),
+      });
+      if (isCurrent()) {
+        this.labelsKey = key;
+        this.setState({ labels: toMetricLabels(frameRows<{ source: string; key: string }>(rows)), labelsLoad: DONE });
+      }
+    } catch (error) {
+      if (isCurrent()) {
+        this.setState({ labelsLoad: loadFailed(error) });
+      }
+    }
+  }
+
+  /** Opens a sidebar section (or closes it with undefined). */
+  setSidebar(sidebar: SidebarSection | undefined) {
+    this.setState({ sidebar });
+    this.loadLabels();
   }
 
   async loadGroups() {
@@ -347,7 +395,9 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
         this.setState({ groups: [], groupsLoad: DONE });
       } else {
         const groups = frameRows<{ value: string; names: string[] }>(
-          await runSql(this, metricsByLabelValueSql(source, label, FILTERS))
+          await runSql(this, metricsByLabelValueSql(source, label, FILTERS), Format.Table, {
+            requestId: this.groupsRequest.requestId(),
+          })
         ).map((row) => ({ value: row.value, names: Array.from(row.names || []) }));
         if (!isCurrent()) {
           return;
@@ -605,7 +655,7 @@ function FilterList({
 
 function LabelList({ model }: SceneComponentProps<MetricsExploration>) {
   const styles = useStyles2(getStyles);
-  const { labels, groupBy } = model.useState();
+  const { labels, labelsLoad, groupBy } = model.useState();
   const [search, setSearch] = useState('');
   const selected = groupBy ? parseMetricLabelId(groupBy) : undefined;
   return (
@@ -628,6 +678,12 @@ function LabelList({ model }: SceneComponentProps<MetricsExploration>) {
           <span className={styles.muted}>No selection</span>
         )}
       </div>
+      <LoadStatus
+        state={labelsLoad}
+        quietLoading={labels.length > 0}
+        loadingText="Loading labels…"
+        errorTitle="Error while loading labels"
+      />
       <div className={styles.scrollList}>
         {labels
           .filter((label) => label.key.toLowerCase().includes(search.toLowerCase()))
@@ -699,7 +755,7 @@ function MetricsReducer({ model }: SceneComponentProps<MetricsExploration>) {
                 sidebar === section.id && styles.railButtonOpen,
                 active[section.id] && styles.railButtonActive
               )}
-              onClick={() => model.setState({ sidebar: sidebar === section.id ? undefined : section.id })}
+              onClick={() => model.setSidebar(sidebar === section.id ? undefined : section.id)}
             >
               {section.icon}
             </button>
@@ -710,7 +766,7 @@ function MetricsReducer({ model }: SceneComponentProps<MetricsExploration>) {
         <div className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
             <h6 className={styles.sectionTitle}>{openSection.title}</h6>
-            <IconButton name="times" aria-label="Close" onClick={() => model.setState({ sidebar: undefined })} />
+            <IconButton name="times" aria-label="Close" onClick={() => model.setSidebar(undefined)} />
           </div>
           {openSection.id === 'filters-prefix' && (
             <FilterList

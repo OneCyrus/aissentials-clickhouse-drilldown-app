@@ -220,14 +220,20 @@ export const attributeValuesSql = (source: SignalSource, key: string, condition:
 /**
  * Selection vs baseline: for each attribute its 10 most frequent values with their span counts in
  * the selection and in the baseline (the rest), plus the totals of both populations.
+ *
+ * One scan: every span also yields a marker pair ('', ''), whose counts are the totals, spread to
+ * every row with a window. Before, the totals came from a second scan of the span set. Values with
+ * the same count are ordered by value, so the 10 shown don't depend on the query plan.
  */
 export const comparisonSql = (source: SignalSource, selection: string): string =>
   `SELECT key, value, selection, baseline, selection_total, baseline_total FROM (` +
+  `SELECT key, value, selection, baseline, ` +
+  `sumIf(selection, key = '') OVER () AS selection_total, sumIf(baseline, key = '') OVER () AS baseline_total FROM (` +
   `SELECT tupleElement(kv, 1) AS key, tupleElement(kv, 2) AS value, countIf(sel) AS selection, countIf(NOT sel) AS baseline ` +
-  `FROM (SELECT arrayJoin(${attributePairs(source)}) AS kv, ${selection} AS sel FROM ${traces(source)} WHERE ${timeFilter} AND ${SCOPE}) ` +
-  `WHERE value != '' GROUP BY key, value ORDER BY key ASC, selection + baseline DESC LIMIT 10 BY key) AS pairs ` +
-  `CROSS JOIN (SELECT countIf(${selection}) AS selection_total, countIf(NOT (${selection})) AS baseline_total ` +
-  `FROM ${traces(source)} WHERE ${timeFilter} AND ${SCOPE}) AS totals`;
+  `FROM (SELECT arrayJoin(arrayConcat([('', '')], ${attributePairs(source)})) AS kv, ${selection} AS sel ` +
+  `FROM ${traces(source)} WHERE ${timeFilter} AND ${SCOPE}) ` +
+  `WHERE key = '' OR value != '' GROUP BY key, value)) ` +
+  `WHERE key != '' ORDER BY key ASC, selection + baseline DESC, value ASC LIMIT 10 BY key`;
 
 /** Spans for the trace list, slowest first. */
 export const spanListSql = (source: SignalSource, condition: string, columns: string[]): string =>

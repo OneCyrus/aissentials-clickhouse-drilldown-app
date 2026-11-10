@@ -300,8 +300,12 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
     if (all) {
       const isCurrent = this.attributesRequest.start();
       const [keys, buckets] = await Promise.all([
-        runSql(this, attributeKeysSql(source, `${PRIMARY} AND ${FILTERS}`)).catch(() => []),
-        runSql(this, durationBucketsSql(source)).catch(() => []),
+        runSql(this, attributeKeysSql(source, `${PRIMARY} AND ${FILTERS}`), Format.Table, {
+          requestId: this.attributesRequest.requestId('keys'),
+        }).catch(() => []),
+        runSql(this, durationBucketsSql(source), Format.Table, {
+          requestId: this.attributesRequest.requestId('buckets'),
+        }).catch(() => []),
       ]);
       if (!isCurrent()) {
         // A newer full refresh (span set or filters changed) owns the attributes and the body.
@@ -393,7 +397,11 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
       case 'comparison':
         this.setState({ body: undefined, bodyLoad: LOADING });
         try {
-          const rows = frameRows<ComparisonRow>(await runSql(this, comparisonSql(source, this.selectionCondition())));
+          const rows = frameRows<ComparisonRow>(
+            await runSql(this, comparisonSql(source, this.selectionCondition()), Format.Table, {
+              requestId: this.bodyRequest.requestId(),
+            })
+          );
           if (!isCurrent()) {
             return;
           }
@@ -415,7 +423,7 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
         this.setState({ body: undefined, bodyLoad: LOADING });
         try {
           const rows = frameRows<{ time: number; service: string; type: string; message: string; traceId: string }>(
-            await runSql(this, exceptionsSql(source))
+            await runSql(this, exceptionsSql(source), Format.Table, { requestId: this.bodyRequest.requestId() })
           );
           if (isCurrent()) {
             this.setState({ exceptions: groupExceptions(rows), bodyLoad: DONE });
@@ -432,7 +440,9 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
           metric === 'errors' ? ERROR_CONDITION : metric === 'duration' ? this.selectionCondition() : '1 = 1';
         try {
           const rows = frameRows<SpanRow>(
-            await runSql(this, spanListSql(source, condition, this.state.spanListColumns))
+            await runSql(this, spanListSql(source, condition, this.state.spanListColumns), Format.Table, {
+              requestId: this.bodyRequest.requestId(),
+            })
           );
           if (isCurrent()) {
             this.setState({ spans: rows, bodyLoad: DONE });

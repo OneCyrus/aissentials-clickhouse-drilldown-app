@@ -35,8 +35,21 @@ export const loadError = (state: LoadState): string | undefined =>
  *   const rows = await runSql(...);
  *   if (!isCurrent()) return;
  */
+let nextRequestKind = 0;
+
 export class LatestRequest {
   private latest = 0;
+  private readonly kind = `clickhouse-app-${++nextRequestKind}`;
+
+  /**
+   * The requestId (runSql's option) of this kind of request: Grafana cancels the request in flight
+   * when a newer one with the same id starts, so a superseded query stops instead of running on.
+   * `name` tells apart the queries of one load that run side by side, which must not cancel each
+   * other.
+   */
+  requestId(name = 'query'): string {
+    return `${this.kind}-${name}`;
+  }
 
   /** Starts a request; the returned check tells whether it is still the newest one. */
   start(): () => boolean {

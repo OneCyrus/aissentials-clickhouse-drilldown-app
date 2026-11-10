@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { css } from '@emotion/css';
-import { GrafanaTheme2 } from '@grafana/data';
+import { GrafanaTheme2, LoadingState } from '@grafana/data';
 import {
   PanelBuilders,
   SceneComponentProps,
+  SceneDataNode,
   SceneObjectBase,
   SceneObjectState,
   VizPanel,
@@ -25,7 +26,8 @@ import {
   sqlQuery,
   tableStyle,
 } from '../shared';
-import { ALL_FILTERS, FILTERS, LEVELS, patternSamplesSql, patternsListSql, patternsVolumeSql } from './sql';
+import { ALL_FILTERS, FILTERS, LEVELS, patternSamplesSql, patternsListSql } from './sql';
+import { patternsBucketSeconds, patternsVolumeFrame } from './patterns';
 import { namedSeries, stackedBars } from './panels';
 import { LogsExploration } from './LogsExploration';
 
@@ -76,14 +78,14 @@ export class PatternsScene extends SceneObjectBase<PatternsSceneState> {
       this.setState({ load: DONE });
       return;
     }
-    const range = sceneGraph.getTimeRange(this).state.value;
-    const bucket = Math.max(1, (range.to.valueOf() - range.from.valueOf()) / 1000 / 60);
+    const timeRange = sceneGraph.getTimeRange(this).state.value;
+    // The chart shows the most frequent patterns of the list, so it needs no query of its own: the
+    // list's counts per bucket are its data, at the chart's resolution.
+    const bucket = patternsBucketSeconds(timeRange);
+    const volumeData = new SceneDataNode({ data: { state: LoadingState.Loading, series: [], timeRange } });
     this.setState({
       load: LOADING,
-      volume: stackedBars(
-        namedSeries(queryRunner([sqlQuery('A', patternsVolumeSql(source, PATTERN_CONDITION))], 120)),
-        'right'
-      )
+      volume: stackedBars(namedSeries(volumeData), 'right')
         .setTitle('Patterns')
         .setHoverHeader(true)
         .setOption('legend', {
@@ -97,7 +99,9 @@ export class PatternsScene extends SceneObjectBase<PatternsSceneState> {
     });
     try {
       const rows = frameRows<{ pattern: string; total: number; levels: string[]; series: Array<[number, number]> }>(
-        await runSql(this, patternsListSql(source, PATTERN_CONDITION, bucket))
+        await runSql(this, patternsListSql(source, PATTERN_CONDITION, bucket), Format.Table, {
+          requestId: this.request.requestId(),
+        })
       ).map((row) => ({
         pattern: row.pattern,
         total: Number(row.total),
@@ -108,10 +112,12 @@ export class PatternsScene extends SceneObjectBase<PatternsSceneState> {
         return;
       }
       this.setState({ rows, load: DONE });
+      volumeData.setState({ data: { state: LoadingState.Done, series: [patternsVolumeFrame(rows)], timeRange } });
       exploration.setState({ patternsCount: rows.length });
     } catch (error) {
       if (isCurrent()) {
         this.setState({ load: loadFailed(error) });
+        volumeData.setState({ data: { state: LoadingState.Error, series: [], timeRange } });
       }
     }
   }

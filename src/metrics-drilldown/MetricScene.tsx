@@ -266,11 +266,18 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     }
     const { entry } = this.state;
     const [keys, quantiles] = await Promise.all([
-      runSql(this, labelKeysSql(source, '1 = 1', entry)).catch(() => []),
+      runSql(this, labelKeysSql(source, '1 = 1', entry), Format.Table, {
+        requestId: this.labelsRequest.requestId('labels'),
+      }).catch(() => []),
       entry.type === MetricType.Summary
-        ? runSql(this, getSummaryQuantilesSql(source.database, metricTableOf(source, entry.type), entry.name)).catch(
-            () => []
-          )
+        ? runSql(
+            this,
+            getSummaryQuantilesSql(source.database, metricTableOf(source, entry.type), entry.name),
+            Format.Table,
+            {
+              requestId: this.labelsRequest.requestId('quantiles'),
+            }
+          ).catch(() => [])
         : Promise.resolve([]),
     ]);
     if (!isCurrent()) {
@@ -544,7 +551,12 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     // The badge shows no count until the new one arrives, rather than the previous filters' count.
     this.setState({ logsCount: undefined });
     try {
-      const rows = frameRows<{ count: number }>(await runSql(this, countSql(logsSource, condition), Format.Table, uid));
+      const rows = frameRows<{ count: number }>(
+        await runSql(this, countSql(logsSource, condition), Format.Table, {
+          datasourceUid: uid,
+          requestId: this.logsCountRequest.requestId(),
+        })
+      );
       if (isCurrent()) {
         this.setState({ logsCount: Number(rows[0]?.count || 0) });
       }
