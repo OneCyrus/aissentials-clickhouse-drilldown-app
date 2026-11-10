@@ -1,4 +1,14 @@
-import { mapAttributeExpression, quoteString, SERVICE_KEY, SignalSource, tableSql } from '../shared';
+import {
+  attributeExpression,
+  attributeKeysOf,
+  attributeValueSql,
+  attributeValuesOf,
+  AttributeShape,
+  quoteString,
+  SERVICE_KEY,
+  SignalSource,
+  tableSql,
+} from '../shared';
 import { VAR_FILTERS } from '../constants';
 
 /**
@@ -46,6 +56,15 @@ export const primarySignals = [
   },
 ];
 
+/** The condition of a primary signal for a table shape: only `database` reads an attribute. */
+export const primarySignalSql = (value: string, shape: AttributeShape = {}): string => {
+  if (value === 'database') {
+    const system = (key: string) => attributeValueSql('SpanAttributes', key, shape.jsonAttributes);
+    return `(${system('db.system')} != '' OR ${system('db.system.name')} != '')`;
+  }
+  return primarySignals.find((signal) => signal.value === value)?.sql || '1 = 1';
+};
+
 export const ERROR_CONDITION = "StatusCode IN ('Error', 'STATUS_CODE_ERROR')";
 export { SERVICE_KEY };
 
@@ -56,8 +75,11 @@ const intrinsics: Record<string, string> = {
   statusMessage: 'StatusMessage',
 };
 
-/** The SQL expression of an attribute key. `duration` compares in milliseconds. */
-export const traceExpression = (key: string): string | undefined => {
+/**
+ * The SQL expression of an attribute key; `duration` compares in milliseconds. `json` for JSON
+ * attribute columns (see AttributeShape).
+ */
+export const traceExpression = (key: string, json = false): string | undefined => {
   if (key === SERVICE_KEY) {
     return 'ServiceName';
   }
@@ -67,8 +89,18 @@ export const traceExpression = (key: string): string | undefined => {
   if (intrinsics[key]) {
     return intrinsics[key];
   }
-  return mapAttributeExpression(key, { resource: 'ResourceAttributes', span: 'SpanAttributes' });
+  return attributeExpression(key, { resource: 'ResourceAttributes', span: 'SpanAttributes' }, json);
 };
+
+/** traceExpression for a source's table shape, for the filter bar and filtersSql. */
+export const traceKeyExpression =
+  (source: SignalSource | undefined) =>
+  (key: string): string | undefined =>
+    traceExpression(key, source?.jsonAttributes);
+
+/** The expression of a key in a source's table, the service for unknown keys. */
+const keyExpression = (source: SignalSource, key: string): string =>
+  traceExpression(key, source.jsonAttributes) || 'ServiceName';
 
 /** Default favorite attributes of Traces Drilldown that exist in OTel data. */
 export const defaultFavorites = [
@@ -136,7 +168,7 @@ export const selectionSql = (metric: MetricType, threshold?: number): string =>
 
 /** The metric over time grouped by an attribute (Breakdown). */
 export const breakdownSql = (source: SignalSource, metric: MetricType, key: string, percentiles: number[]): string => {
-  const expression = `toString(${traceExpression(key) || 'ServiceName'})`;
+  const expression = `toString(${keyExpression(source, key)})`;
   const where =
     `${timeFilter} AND ${SCOPE}${metric === 'errors' ? ` AND ${ERROR_CONDITION}` : ''} AND ${expression} != ''` +
     (metric === 'duration' ? ` AND ${VALID_DURATION}` : '');
@@ -157,18 +189,28 @@ export const breakdownSql = (source: SignalSource, metric: MetricType, key: stri
 };
 
 /** Every attribute of the spans in scope as (key, value), for keys and comparison. */
-const attributePairs =
-  "arrayConcat([('resource.service.name', toString(ServiceName)), ('name', toString(SpanName)), ('kind', toString(SpanKind)), ('status', toString(StatusCode))], " +
-  "arrayMap((k, v) -> (concat('resource.', k), v), mapKeys(ResourceAttributes), mapValues(ResourceAttributes)), " +
-  "arrayMap((k, v) -> (concat('span.', k), v), mapKeys(SpanAttributes), mapValues(SpanAttributes)))";
+const attributePairs = (source: SignalSource) => {
+  const prefixed = (prefix: string, column: string) =>
+    `arrayMap((k, v) -> (concat('${prefix}.', k), v), ${attributeKeysOf(column, source)}, ${attributeValuesOf(column, source)})`;
+  return (
+    "arrayConcat([('resource.service.name', toString(ServiceName)), ('name', toString(SpanName)), ('kind', toString(SpanKind)), ('status', toString(StatusCode))], " +
+    `${prefixed('resource', 'ResourceAttributes')}, ${prefixed('span', 'SpanAttributes')})`
+  );
+};
+
+/** Only the keys of every attribute, for the attribute list: no values to read. */
+const attributeKeys = (source: SignalSource) =>
+  "arrayConcat(['resource.service.name', 'name', 'kind', 'status'], " +
+  `arrayMap(k -> concat('resource.', k), ${attributeKeysOf('ResourceAttributes', source)}), ` +
+  `arrayMap(k -> concat('span.', k), ${attributeKeysOf('SpanAttributes', source)}))`;
 
 /** Attribute keys of the spans in scope (for the sidebar and the filter bar). */
 export const attributeKeysSql = (source: SignalSource, condition: string): string =>
-  `SELECT DISTINCT tupleElement(kv, 1) AS key FROM (SELECT arrayJoin(${attributePairs}) AS kv ` +
+  `SELECT DISTINCT key FROM (SELECT arrayJoin(${attributeKeys(source)}) AS key ` +
   `FROM ${traces(source)} WHERE ${timeFilter} AND ${condition}) ORDER BY key ASC LIMIT 1000`;
 
 export const attributeValuesSql = (source: SignalSource, key: string, condition: string): string => {
-  const expression = `toString(${traceExpression(key) || 'ServiceName'})`;
+  const expression = `toString(${keyExpression(source, key)})`;
   return (
     `SELECT ${expression} AS value, count() AS count FROM ${traces(source)} WHERE ${timeFilter} AND ${condition} ` +
     `GROUP BY value HAVING value != '' ORDER BY count DESC LIMIT 1000`
@@ -182,7 +224,7 @@ export const attributeValuesSql = (source: SignalSource, key: string, condition:
 export const comparisonSql = (source: SignalSource, selection: string): string =>
   `SELECT key, value, selection, baseline, selection_total, baseline_total FROM (` +
   `SELECT tupleElement(kv, 1) AS key, tupleElement(kv, 2) AS value, countIf(sel) AS selection, countIf(NOT sel) AS baseline ` +
-  `FROM (SELECT arrayJoin(${attributePairs}) AS kv, ${selection} AS sel FROM ${traces(source)} WHERE ${timeFilter} AND ${SCOPE}) ` +
+  `FROM (SELECT arrayJoin(${attributePairs(source)}) AS kv, ${selection} AS sel FROM ${traces(source)} WHERE ${timeFilter} AND ${SCOPE}) ` +
   `WHERE value != '' GROUP BY key, value ORDER BY key ASC, selection + baseline DESC LIMIT 10 BY key) AS pairs ` +
   `CROSS JOIN (SELECT countIf(${selection}) AS selection_total, countIf(NOT (${selection})) AS baseline_total ` +
   `FROM ${traces(source)} WHERE ${timeFilter} AND ${SCOPE}) AS totals`;
@@ -191,26 +233,39 @@ export const comparisonSql = (source: SignalSource, selection: string): string =
 export const spanListSql = (source: SignalSource, condition: string, columns: string[]): string =>
   `SELECT Timestamp AS "Start time", StatusCode AS "status", ServiceName AS "Service", SpanName AS "Name", ` +
   `Duration / 1000000 AS "Duration (ms)", TraceId AS "Trace ID", SpanId AS "Span ID"` +
-  columns.map((key) => `, toString(${traceExpression(key) || "''"}) AS ${quoteIdentifier(key)}`).join('') +
+  columns
+    .map((key) => `, toString(${traceExpression(key, source.jsonAttributes) || "''"}) AS ${quoteIdentifier(key)}`)
+    .join('') +
   ` FROM ${traces(source)} WHERE ${timeFilter} AND ${SCOPE} AND ${condition} AND ${VALID_DURATION} ORDER BY Duration DESC LIMIT 200`;
 
 const quoteIdentifier = (name: string) => `"${name.replace(/"/g, '""')}"`;
 
+/** An attribute of the event in `event` (a (name, attributes) tuple), empty when missing. */
+const eventAttribute = (source: SignalSource, key: string): string =>
+  source.jsonAttributes
+    ? `ifNull(getSubcolumn(tupleElement(event, 2), ${quoteString(key)})::Nullable(String), '')`
+    : `tupleElement(event, 2)[${quoteString(key)}]`;
+
 /** Exception events of error spans, latest first. */
 export const exceptionsSql = (source: SignalSource): string =>
   `SELECT Timestamp AS time, ServiceName AS service, ` +
-  `tupleElement(event, 2)['exception.type'] AS type, tupleElement(event, 2)['exception.message'] AS message, TraceId AS traceId ` +
+  `${eventAttribute(source, 'exception.type')} AS type, ${eventAttribute(source, 'exception.message')} AS message, TraceId AS traceId ` +
   `FROM ${traces(source)} ARRAY JOIN arrayZip(Events.Name, Events.Attributes) AS event ` +
   `WHERE ${timeFilter} AND ${SCOPE} AND ${ERROR_CONDITION} AND tupleElement(event, 1) = 'exception' ` +
   `ORDER BY Timestamp DESC LIMIT 400`;
+
+/** An attribute column as the trace view's tags: [{ key, value }]. */
+const traceTags = (source: SignalSource, column: string): string =>
+  source.jsonAttributes
+    ? `arrayMap((key, value) -> map('key', key, 'value', value), ${attributeKeysOf(column, source)}, ${attributeValuesOf(column, source)})`
+    : `arrayMap(key -> map('key', key, 'value', ${column}[key]), mapKeys(${column}))`;
 
 /** One trace in the format of the data source's trace view. */
 export const traceSql = (source: SignalSource, traceId: string): string =>
   `SELECT TraceId AS traceID, SpanId AS spanID, ParentSpanId AS parentSpanID, ServiceName AS serviceName, ` +
   `SpanName AS operationName, multiply(toUnixTimestamp64Nano(Timestamp), 0.000001) AS startTime, ` +
   `multiply(Duration, 0.000001) AS duration, ` +
-  `arrayMap(key -> map('key', key, 'value', SpanAttributes[key]), mapKeys(SpanAttributes)) AS tags, ` +
-  `arrayMap(key -> map('key', key, 'value', ResourceAttributes[key]), mapKeys(ResourceAttributes)) AS serviceTags, ` +
+  `${traceTags(source, 'SpanAttributes')} AS tags, ${traceTags(source, 'ResourceAttributes')} AS serviceTags, ` +
   `if(StatusCode IN ('Error', 'STATUS_CODE_ERROR'), 2, 0) AS statusCode ` +
   `FROM ${traces(source)} WHERE TraceId = ${quoteString(traceId)}${traceIdBounds(source, traceId)}`;
 

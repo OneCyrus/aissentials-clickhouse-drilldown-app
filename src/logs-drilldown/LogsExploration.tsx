@@ -44,6 +44,7 @@ import {
   Format,
   frameRows,
   getSignalSource,
+  loadSignalSource,
   DONE,
   interpolate,
   LatestRequest,
@@ -67,6 +68,7 @@ import {
   valueSortOptions,
   errorMessage,
 } from '../shared';
+import { refreshFilterExpression } from '../shared/scene';
 import {
   ALL_FILTERS,
   AppliedPattern,
@@ -159,6 +161,8 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     onReferencedVariableValueChanged: () => this.refresh(),
   });
 
+  /** The table shape detection before a refresh; a newer refresh supersedes it. */
+  private sourceRequest = new LatestRequest();
   private landingRequest = new LatestRequest();
   /** The tiles' data of the landing page shown; search, paging and refresh supersede it. */
   private tilesRequest = new LatestRequest();
@@ -273,7 +277,22 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     return filters.find((filter) => filter.key === this.state.primaryLabel && filter.operator === '=') || filters[0];
   }
 
-  refresh() {
+  /** Detects the table's attribute shape (JSON or Map) once per data source; the queries depend on it. */
+  async loadSource(): Promise<SignalSource | undefined> {
+    const source = await loadSignalSource(this, interpolate(this, `\${${VAR_DATASOURCE}}`), 'logs');
+    // The filter bars render their SQL when their filters change, e.g. from the URL before the
+    // shape was known; render it again for this table's shape.
+    refreshFilterExpression(this.getVariable(VAR_FILTERS, AdHocFiltersVariable));
+    refreshFilterExpression(this.getVariable(VAR_FIELDS, AdHocFiltersVariable));
+    return source;
+  }
+
+  async refresh() {
+    const isCurrent = this.sourceRequest.start();
+    await this.loadSource();
+    if (!isCurrent()) {
+      return;
+    }
     if (this.state.view) {
       this.loadCounts();
       this.buildDetails();

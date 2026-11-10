@@ -1,4 +1,13 @@
-import { mapAttributeExpression, quoteString, SERVICE_KEY, SignalSource, tableSql } from '../shared';
+import {
+  attributeExpression,
+  attributeKeysOf,
+  attributeMapOf,
+  attributeValuesOf,
+  quoteString,
+  SERVICE_KEY,
+  SignalSource,
+  tableSql,
+} from '../shared';
 import { VAR_FILTERS } from '../constants';
 
 /**
@@ -50,8 +59,8 @@ export const patternExpression = [...patternReplacements, '(<_>[ ,;:/=]*)+<_>'].
   'Body'
 );
 
-/** The SQL expression of a filter key. */
-export const logsExpression = (key: string): string | undefined => {
+/** The SQL expression of a filter key; `json` for JSON attribute columns (see AttributeShape). */
+export const logsExpression = (key: string, json = false): string | undefined => {
   if (key === SERVICE_KEY) {
     return 'ServiceName';
   }
@@ -61,8 +70,18 @@ export const logsExpression = (key: string): string | undefined => {
   if (key === 'pattern') {
     return patternExpression;
   }
-  return mapAttributeExpression(key, { resource: 'ResourceAttributes', log: 'LogAttributes' });
+  return attributeExpression(key, { resource: 'ResourceAttributes', log: 'LogAttributes' }, json);
 };
+
+/** logsExpression for a source's table shape, for the filter bar and filtersSql. */
+export const logsKeyExpression =
+  (source: SignalSource | undefined) =>
+  (key: string): string | undefined =>
+    logsExpression(key, source?.jsonAttributes);
+
+/** The expression of a key in a source's table, the service for unknown keys. */
+const keyExpression = (source: SignalSource, key: string): string =>
+  logsExpression(key, source.jsonAttributes) || 'ServiceName';
 
 /** The display name of a key, as the Drilldown apps show it. */
 export const keyDisplayName = (key: string): string =>
@@ -84,14 +103,14 @@ export const logsTimeFilter = (source: SignalSource): string =>
     : '$__timeFilter(Timestamp)';
 
 /** The columns of the logs panel: timestamp, body, level and the attributes as labels. */
-const logLineColumns =
+const logLineColumns = (source: SignalSource) =>
   `Timestamp AS "timestamp", Body AS "body", ${levelExpression} AS "level", ` +
-  `mapConcat(map('service.name', ServiceName), ResourceAttributes, LogAttributes) AS "labels", ` +
-  `TraceId AS "traceID", SpanId AS "spanID"`;
+  `mapConcat(map('service.name', ServiceName), ${attributeMapOf('ResourceAttributes', source)}, ` +
+  `${attributeMapOf('LogAttributes', source)}) AS "labels", TraceId AS "traceID", SpanId AS "spanID"`;
 
 /** Rows for the logs panel: timestamp, body, level and the attributes as labels. */
 export const logLinesSql = (source: SignalSource, condition: string, limit = 1000, ascending = false): string =>
-  `SELECT ${logLineColumns} ` +
+  `SELECT ${logLineColumns(source)} ` +
   `FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} ` +
   `ORDER BY Timestamp ${ascending ? 'ASC' : 'DESC'} LIMIT ${limit}`;
 
@@ -109,14 +128,14 @@ export const volumeByLevelSql = (source: SignalSource, condition: string): strin
 export const LANDING_TILE = '__tile';
 
 /** The landing condition: the primary label is one of the page's values. */
-const landingCondition = (key: string, values: string[], condition: string) =>
-  `${logsExpression(key) || 'ServiceName'} IN (${values.map(quoteString).join(', ')}) AND ${condition}`;
+const landingCondition = (source: SignalSource, key: string, values: string[], condition: string) =>
+  `${keyExpression(source, key)} IN (${values.map(quoteString).join(', ')}) AND ${condition}`;
 
 /** Log volume per time bucket and level of every tile of a landing page. */
 export const landingVolumeSql = (source: SignalSource, key: string, values: string[], condition: string): string =>
-  `SELECT $__timeInterval(Timestamp) AS time, toString(${logsExpression(key) || 'ServiceName'}) AS ${LANDING_TILE}, ` +
+  `SELECT $__timeInterval(Timestamp) AS time, toString(${keyExpression(source, key)}) AS ${LANDING_TILE}, ` +
   `${levelExpression} AS level, count() AS count FROM ${logsTable(source)} ` +
-  `WHERE ${logsTimeFilter(source)} AND ${landingCondition(key, values, condition)} ` +
+  `WHERE ${logsTimeFilter(source)} AND ${landingCondition(source, key, values, condition)} ` +
   `GROUP BY time, ${LANDING_TILE}, level ORDER BY time ASC`;
 
 /** The latest lines of every tile of a landing page, at most `perValue` each. */
@@ -127,8 +146,8 @@ export const landingLinesSql = (
   condition: string,
   perValue = 100
 ): string =>
-  `SELECT ${logLineColumns}, toString(${logsExpression(key) || 'ServiceName'}) AS "${LANDING_TILE}" ` +
-  `FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${landingCondition(key, values, condition)} ` +
+  `SELECT ${logLineColumns(source)}, toString(${keyExpression(source, key)}) AS "${LANDING_TILE}" ` +
+  `FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${landingCondition(source, key, values, condition)} ` +
   `ORDER BY Timestamp DESC LIMIT ${perValue} BY "${LANDING_TILE}"`;
 
 export const countSql = (source: SignalSource, condition: string): string =>
@@ -182,7 +201,8 @@ export const detectedKeysSql = (source: SignalSource, kind: 'labels' | 'fields',
   const prefix = kind === 'labels' ? 'resource.' : 'log.';
   const keys =
     `SELECT concat(${quoteString(prefix)}, tupleElement(kv, 1)) AS key, uniq(tupleElement(kv, 2)) AS cardinality ` +
-    `FROM (SELECT arrayJoin(arrayZip(mapKeys(${column}), mapValues(${column}))) AS kv FROM ${logsTable(source)} ` +
+    `FROM (SELECT arrayJoin(arrayZip(${attributeKeysOf(column, source)}, ${attributeValuesOf(column, source)})) AS kv ` +
+    `FROM ${logsTable(source)} ` +
     `WHERE ${logsTimeFilter(source)} AND ${condition}) GROUP BY key`;
   if (kind === 'fields') {
     return `SELECT key, cardinality FROM (${keys}) ORDER BY key ASC LIMIT 500`;
@@ -196,7 +216,7 @@ export const detectedKeysSql = (source: SignalSource, kind: 'labels' | 'fields',
 
 /** Values of a key by count, most first, for the landing page and suggestions. */
 export const valueCountsSql = (source: SignalSource, key: string, condition: string, limit = 1000): string => {
-  const expression = logsExpression(key) || 'ServiceName';
+  const expression = keyExpression(source, key);
   return (
     `SELECT toString(${expression}) AS value, count() AS count FROM ${logsTable(source)} ` +
     `WHERE ${logsTimeFilter(source)} AND ${condition} GROUP BY value HAVING value != '' ORDER BY count DESC, value ASC LIMIT ${limit}`
@@ -205,7 +225,7 @@ export const valueCountsSql = (source: SignalSource, key: string, condition: str
 
 /** Count per time bucket and value of a key, for the top values (all when limit is 0). */
 export const volumeByValueSql = (source: SignalSource, key: string, condition: string, limit = 20): string => {
-  const expression = `toString(${logsExpression(key) || 'ServiceName'})`;
+  const expression = `toString(${keyExpression(source, key)})`;
   const top = limit
     ? ` AND ${expression} IN (SELECT ${expression} FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} ` +
       `GROUP BY ${expression} ORDER BY count() DESC LIMIT ${limit})`

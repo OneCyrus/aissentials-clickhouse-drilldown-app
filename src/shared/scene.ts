@@ -77,6 +77,18 @@ export const filtersVariable = (options: FiltersVariableOptions): AdHocFiltersVa
   return variable;
 };
 
+/**
+ * Renders a filter bar's SQL again. AdHocFiltersVariable renders it only when its filters change,
+ * so an expression that depends on something else, such as the table's attribute shape, would
+ * otherwise keep the form it had when the filters were set. Publishes nothing: the caller queries
+ * next anyway.
+ */
+export const refreshFilterExpression = (variable: AdHocFiltersVariable | undefined) => {
+  if (variable) {
+    variable.updateFilters([...variable.state.filters], { skipPublish: true });
+  }
+};
+
 /** The SQL condition of all filters except those on one key, for value suggestions of that key. */
 export const otherFiltersSql = (
   variable: AdHocFiltersVariable,

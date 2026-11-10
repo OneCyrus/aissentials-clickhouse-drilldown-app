@@ -47,6 +47,7 @@ import {
   Format,
   frameRows,
   getSignalSource,
+  loadSignalSource,
   loadTraceIndex,
   interpolate,
   queryRunner,
@@ -64,6 +65,7 @@ import {
   loadFailed,
   LOADING,
 } from '../shared';
+import { refreshFilterExpression } from '../shared/scene';
 import {
   attributeKeysSql,
   breakdownSql,
@@ -76,6 +78,7 @@ import {
   MetricType,
   PRIMARY,
   primarySignals,
+  primarySignalSql,
   rateSql,
   selectionSql,
   SERVICE_KEY,
@@ -263,9 +266,18 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
     return variable instanceof AdHocFiltersVariable ? variable : undefined;
   }
 
+  /** Detects the table's attribute shape (JSON or Map) once per data source; the queries depend on it. */
+  async loadSource(): Promise<SignalSource | undefined> {
+    const source = await loadSignalSource(this, interpolate(this, `\${${VAR_DATASOURCE}}`), 'traces');
+    // The filter bar renders its SQL when its filters change, e.g. from the URL before the shape
+    // was known; render it again for this table's shape.
+    refreshFilterExpression(this.getFiltersVariable());
+    return source;
+  }
+
   syncPrimary() {
     const variable = sceneGraph.lookupVariable(VAR_PRIMARY, this);
-    const sql = primarySignals.find((signal) => signal.value === this.state.primarySignal)?.sql || '1 = 1';
+    const sql = primarySignalSql(this.state.primarySignal, this.getSource());
     if (variable instanceof TextBoxVariable && variable.getValue() !== sql) {
       variable.setValue(sql);
     }
@@ -273,11 +285,17 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
 
   /** Rebuilds what depends on the span set; `all` also reloads attributes and the duration selection. */
   async refresh(all = false) {
-    const source = this.getSource();
+    const isSourceCurrent = this.sourceRequest.start();
+    const source = await this.loadSource();
+    if (!isSourceCurrent()) {
+      return;
+    }
     if (!source) {
       this.setState({ bodyLoad: loadFailed('Pick a ClickHouse data source with OpenTelemetry traces.') });
       return;
     }
+    // The database signal reads an attribute, so its condition follows the table shape.
+    this.syncPrimary();
     this.buildPanels(source);
     if (all) {
       const isCurrent = this.attributesRequest.start();
@@ -359,6 +377,8 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
 
   /** Switching tabs or metrics while a tab's data loads supersedes that request. */
   private bodyRequest = new LatestRequest();
+  /** The table shape detection before a refresh; a newer refresh supersedes it. */
+  private sourceRequest = new LatestRequest();
   /** The attribute list and duration selection of the span set. */
   private attributesRequest = new LatestRequest();
 
@@ -556,8 +576,11 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
     if (!traceId) {
       return;
     }
-    // The trace-id index bounds the lookup when the deployment has one (looked up once).
-    const source = await loadTraceIndex(this, interpolate(this, `\${${VAR_DATASOURCE}}`));
+    // The trace-id index bounds the lookup when the deployment has one, and the tags follow the
+    // table's attribute shape (both looked up once).
+    const uid = interpolate(this, `\${${VAR_DATASOURCE}}`);
+    await this.loadSource();
+    const source = await loadTraceIndex(this, uid);
     if (!source || this.state.traceId !== traceId) {
       return;
     }
