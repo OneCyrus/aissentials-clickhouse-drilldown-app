@@ -171,25 +171,6 @@ export const nameDistance = (candidate: string, target: string): number => {
   return levenshtein(head, target) + levenshtein(candidate, target);
 };
 
-/**
- * Search pieces split on commas, each a case-insensitive regular expression (invalid ones are
- * dropped); a name matches when any piece matches. Plain words work as substrings.
- */
-export const searchMatcher = (text: string): ((name: string) => boolean) => {
-  const patterns = text
-    .split(',')
-    .map((piece) => piece.trim())
-    .filter(Boolean)
-    .flatMap((piece) => {
-      try {
-        return [new RegExp(piece, 'i')];
-      } catch {
-        return [];
-      }
-    });
-  return patterns.length ? (name) => patterns.some((pattern) => pattern.test(name)) : () => true;
-};
-
 /** For each value of a label, the metrics that carry it (the "Group by labels" list). */
 export const metricsByLabelValueSql = (source: SignalSource, label: MetricLabel, condition: string): string => {
   const expression = getMetricLabelExpression(label, source.metricFeatures?.jsonAttributes);

@@ -1,4 +1,4 @@
-import { quoteString, SignalSource, tableSql } from '../shared';
+import { mapAttributeExpression, quoteString, SERVICE_KEY, SignalSource, tableSql } from '../shared';
 import { VAR_FILTERS } from '../constants';
 
 /**
@@ -21,7 +21,7 @@ const PATTERNS = `\${${VAR_PATTERNS}}`;
 /** Every condition of the filter header, ANDed. */
 export const ALL_FILTERS = `${FILTERS} AND ${LEVELS} AND ${FIELDS} AND ${LINE_FILTERS} AND ${PATTERNS}`;
 
-export const SERVICE_KEY = 'resource.service.name';
+export { SERVICE_KEY };
 
 /** The level of a log line: SeverityText lower-cased and normalized, `unknown` when empty. */
 const levelExpression =
@@ -61,13 +61,7 @@ export const logsExpression = (key: string): string | undefined => {
   if (key === 'pattern') {
     return patternExpression;
   }
-  if (key.startsWith('resource.')) {
-    return `ResourceAttributes[${quoteString(key.slice('resource.'.length))}]`;
-  }
-  if (key.startsWith('log.')) {
-    return `LogAttributes[${quoteString(key.slice('log.'.length))}]`;
-  }
-  return undefined;
+  return mapAttributeExpression(key, { resource: 'ResourceAttributes', log: 'LogAttributes' });
 };
 
 /** The display name of a key, as the Drilldown apps show it. */

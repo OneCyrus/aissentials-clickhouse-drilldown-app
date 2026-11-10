@@ -1,6 +1,19 @@
 import { AdHocVariableFilter } from '@grafana/data';
 import { quoteString } from 'clickhouse/metrics';
 
+/** The filter key of the service, a column of its own in every exporter table. */
+export const SERVICE_KEY = 'resource.service.name';
+
+/**
+ * The Map access of a prefixed attribute key, e.g. `resource.k8s.pod.name` to
+ * `ResourceAttributes['k8s.pod.name']` with `{ resource: 'ResourceAttributes' }`; undefined for
+ * other keys.
+ */
+export const mapAttributeExpression = (key: string, columns: Record<string, string>): string | undefined => {
+  const prefix = Object.keys(columns).find((name) => key.startsWith(`${name}.`));
+  return prefix ? `${columns[prefix]}[${quoteString(key.slice(prefix.length + 1))}]` : undefined;
+};
+
 export { quoteString };
 
 /**

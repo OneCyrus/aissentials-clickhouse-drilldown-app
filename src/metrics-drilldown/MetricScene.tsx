@@ -55,16 +55,17 @@ import {
   Control,
   copyCurrentUrl,
   exploreUrl,
-  filterConditionSql,
+  filtersSql,
   FilterLike,
   Format,
   frameRows,
   interpolate,
   getClickHouseDataSources,
   getSignalSource,
+  LatestRequest,
   metricTableOf,
   headerButton,
-  quoteString,
+  SignalSource,
   queryRunner,
   runSql,
   searchMatches,
@@ -79,7 +80,7 @@ import {
   ToolbarGroup,
   supportsSignal,
 } from '../shared';
-import { countSql, logLinesSql } from '../logs-drilldown/sql';
+import { countSql, logLinesSql, logsExpression } from '../logs-drilldown/sql';
 import {
   defaultMetricQuery,
   FILTERS,
@@ -133,9 +134,6 @@ const logsFilterKey = (key: string): string | undefined => {
   }
   return label.source === 'resource' ? `resource.${label.key}` : undefined;
 };
-
-const logsExpressionOf = (key: string): string =>
-  key === 'resource.service.name' ? 'ServiceName' : `ResourceAttributes[${quoteString(key.slice('resource.'.length))}]`;
 
 /** One metric: the main panel with its function, then the breakdown, related metrics or related logs. */
 export class MetricScene extends SceneObjectBase<MetricSceneState> {
@@ -245,7 +243,13 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     return sceneGraph.getAncestor(this, MetricsExploration);
   }
 
+  /** The metric's labels and summary quantiles; a filter or range change supersedes the request. */
+  private labelsRequest = new LatestRequest();
+  /** The related logs count; switching the logs data source or the filters supersedes it. */
+  private logsCountRequest = new LatestRequest();
+
   async loadLabels() {
+    const isCurrent = this.labelsRequest.start();
     const source = await this.getExploration()
       .loadSource()
       .catch(() => undefined);
@@ -261,6 +265,9 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
           )
         : Promise.resolve([]),
     ]);
+    if (!isCurrent()) {
+      return;
+    }
     const labels = toMetricLabels(frameRows<{ source: string; key: string }>(keys));
     const summaryQuantiles = frameRows<{ quantile: number }>(quantiles)
       .map((row) => Number(row.quantile))
@@ -463,16 +470,23 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     }
   }
 
-  private buildRelatedLogs(): SceneObject | undefined {
+  /** The logs source and condition of the related logs, when the metric's filters apply to logs. */
+  private relatedLogsQuery(): { uid: string; logsSource: SignalSource; condition: string } | undefined {
     const filters = this.relatedLogsFilters();
     const uid = this.state.logsUid || this.logsSources()[0]?.uid;
     const logsSource = uid ? getSignalSource(uid, 'logs') : undefined;
-    if (!filters.length || !logsSource) {
+    if (!uid || !filters.length || !logsSource) {
       return undefined;
     }
-    const condition = filters
-      .map((filter) => `(${filterConditionSql(logsExpressionOf(filter.key), filter)})`)
-      .join(' AND ');
+    return { uid, logsSource, condition: filtersSql(filters, logsExpression) };
+  }
+
+  private buildRelatedLogs(): SceneObject | undefined {
+    const query = this.relatedLogsQuery();
+    if (!query) {
+      return undefined;
+    }
+    const { uid, logsSource, condition } = query;
     return PanelBuilders.logs()
       .setTitle('Logs')
       .setData(queryRunner([sqlQuery('A', logLinesSql(logsSource, condition, 100), Format.Logs, uid)]))
@@ -483,21 +497,24 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
 
   /** Counts the related log lines in the background for the tab's badge. */
   async countRelatedLogs() {
-    const filters = this.relatedLogsFilters();
-    const uid = this.state.logsUid || this.logsSources()[0]?.uid;
-    const logsSource = uid ? getSignalSource(uid, 'logs') : undefined;
-    if (!filters.length || !logsSource) {
+    const isCurrent = this.logsCountRequest.start();
+    const query = this.relatedLogsQuery();
+    if (!query) {
       this.setState({ logsCount: undefined });
       return;
     }
-    const condition = filters
-      .map((filter) => `(${filterConditionSql(logsExpressionOf(filter.key), filter)})`)
-      .join(' AND ');
+    const { uid, logsSource, condition } = query;
+    // The badge shows no count until the new one arrives, rather than the previous filters' count.
+    this.setState({ logsCount: undefined });
     try {
       const rows = frameRows<{ count: number }>(await runSql(this, countSql(logsSource, condition), Format.Table, uid));
-      this.setState({ logsCount: Number(rows[0]?.count || 0) });
+      if (isCurrent()) {
+        this.setState({ logsCount: Number(rows[0]?.count || 0) });
+      }
     } catch {
-      this.setState({ logsCount: undefined });
+      if (isCurrent()) {
+        this.setState({ logsCount: undefined });
+      }
     }
   }
 

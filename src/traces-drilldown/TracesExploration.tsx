@@ -56,7 +56,13 @@ import {
   sqlQuery,
   Toolbar,
   ToolbarGroup,
-  errorMessage,
+  DONE,
+  LatestRequest,
+  loadError,
+  LoadState,
+  LoadStatus,
+  loadFailed,
+  LOADING,
 } from '../shared';
 import {
   attributeKeysSql,
@@ -90,6 +96,7 @@ import {
   SpanRow,
   SpanTable,
   toComparison,
+  ComparisonRow,
 } from './components';
 
 type ActionView = 'breakdown' | 'comparison' | 'exceptions' | 'traceList';
@@ -114,8 +121,8 @@ interface TracesExplorationState extends SceneObjectState {
   comparison: ComparisonAttribute[];
   exceptions: ReturnType<typeof groupExceptions>;
   spans: SpanRow[];
-  loading: boolean;
-  error?: string;
+  /** The current tab's data (comparison, exceptions, span list); the page's error without a data source. */
+  bodyLoad: LoadState;
   ratePanel?: VizPanel;
   errorsPanel?: VizPanel;
   durationPanel?: VizPanel;
@@ -178,7 +185,7 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
       comparison: [],
       exceptions: [],
       spans: [],
-      loading: false,
+      bodyLoad: DONE,
       ...state,
     });
     this.addActivationHandler(() => {
@@ -268,16 +275,20 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
   async refresh(all = false) {
     const source = this.getSource();
     if (!source) {
-      this.setState({ error: 'Pick a ClickHouse data source with OpenTelemetry traces.' });
+      this.setState({ bodyLoad: loadFailed('Pick a ClickHouse data source with OpenTelemetry traces.') });
       return;
     }
-    this.setState({ error: undefined });
     this.buildPanels(source);
     if (all) {
+      const isCurrent = this.attributesRequest.start();
       const [keys, buckets] = await Promise.all([
         runSql(this, attributeKeysSql(source, `${PRIMARY} AND ${FILTERS}`)).catch(() => []),
         runSql(this, durationBucketsSql(source)).catch(() => []),
       ]);
+      if (!isCurrent()) {
+        // A newer full refresh (span set or filters changed) owns the attributes and the body.
+        return;
+      }
       const attributes = frameRows<{ key: string }>(keys).map((row) => row.key);
       const auto = slowestQuarterThreshold(frameRows<{ bucket: number }>(buckets).map((row) => Number(row.bucket)));
       this.setState({ attributes, threshold: this.state.thresholdAuto ? auto : this.state.threshold });
@@ -346,29 +357,24 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
     return selectionSql(this.state.metric, this.state.threshold);
   }
 
-  /** Guards buildBody writes: switching tabs or metrics starts a newer request. */
-  private bodyToken = 0;
+  /** Switching tabs or metrics while a tab's data loads supersedes that request. */
+  private bodyRequest = new LatestRequest();
+  /** The attribute list and duration selection of the span set. */
+  private attributesRequest = new LatestRequest();
 
   /** The tab content for the current state. */
   async buildBody(source: SignalSource) {
     const { actionView, metric } = this.state;
-    const token = ++this.bodyToken;
+    const isCurrent = this.bodyRequest.start();
     if (actionView === 'exceptions' && metric !== 'errors') {
       this.setState({ actionView: 'breakdown' });
     }
     switch (this.state.actionView) {
       case 'comparison':
-        this.setState({ body: undefined, loading: true });
+        this.setState({ body: undefined, bodyLoad: LOADING });
         try {
-          const rows = frameRows<{
-            key: string;
-            value: string;
-            selection: number;
-            baseline: number;
-            selection_total: number;
-            baseline_total: number;
-          }>(await runSql(this, comparisonSql(source, this.selectionCondition())));
-          if (token !== this.bodyToken) {
+          const rows = frameRows<ComparisonRow>(await runSql(this, comparisonSql(source, this.selectionCondition())));
+          if (!isCurrent()) {
             return;
           }
           // The attributes that define the selection differ by definition; they are not findings.
@@ -377,49 +383,49 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
             comparison: toComparison(rows, this.state.primarySignal === 'root').filter(
               (a) => !defining.includes(a.key)
             ),
-            loading: false,
+            bodyLoad: DONE,
           });
         } catch (error) {
-          if (token === this.bodyToken) {
-            this.setState({ loading: false, error: errorMessage(error) });
+          if (isCurrent()) {
+            this.setState({ bodyLoad: loadFailed(error) });
           }
         }
         return;
       case 'exceptions':
-        this.setState({ body: undefined, loading: true });
+        this.setState({ body: undefined, bodyLoad: LOADING });
         try {
           const rows = frameRows<{ time: number; service: string; type: string; message: string; traceId: string }>(
             await runSql(this, exceptionsSql(source))
           );
-          if (token === this.bodyToken) {
-            this.setState({ exceptions: groupExceptions(rows), loading: false });
+          if (isCurrent()) {
+            this.setState({ exceptions: groupExceptions(rows), bodyLoad: DONE });
           }
         } catch (error) {
-          if (token === this.bodyToken) {
-            this.setState({ loading: false, error: errorMessage(error) });
+          if (isCurrent()) {
+            this.setState({ bodyLoad: loadFailed(error) });
           }
         }
         return;
       case 'traceList': {
-        this.setState({ body: undefined, loading: true });
+        this.setState({ body: undefined, bodyLoad: LOADING });
         const condition =
           metric === 'errors' ? ERROR_CONDITION : metric === 'duration' ? this.selectionCondition() : '1 = 1';
         try {
           const rows = frameRows<SpanRow>(
             await runSql(this, spanListSql(source, condition, this.state.spanListColumns))
           );
-          if (token === this.bodyToken) {
-            this.setState({ spans: rows, loading: false });
+          if (isCurrent()) {
+            this.setState({ spans: rows, bodyLoad: DONE });
           }
         } catch (error) {
-          if (token === this.bodyToken) {
-            this.setState({ loading: false, error: errorMessage(error) });
+          if (isCurrent()) {
+            this.setState({ bodyLoad: loadFailed(error) });
           }
         }
         return;
       }
       default:
-        this.setState({ body: this.buildBreakdown(source), loading: false });
+        this.setState({ body: this.buildBreakdown(source), bodyLoad: DONE });
     }
   }
 
@@ -591,8 +597,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
     exceptions,
     spans,
     spanListColumns,
-    loading,
-    error,
+    bodyLoad,
     traceId,
     trace,
     threshold,
@@ -661,7 +666,8 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
           />
         </Control>
       </Toolbar>
-      {error && <Alert title="Error">{error}</Alert>}
+      {/* The other tabs show their load state, errors included, in place. */}
+      {actionView === 'breakdown' && loadError(bodyLoad) && <Alert title="Error">{loadError(bodyLoad)}</Alert>}
 
       <div className={styles.metricCaption}>
         Select metric type{' '}
@@ -870,8 +876,10 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
                 : 'spans with status error'}
               ; baseline: all other spans in scope. Values are shares of each population.
             </p>
-            {loading && <LoadingPlaceholder text="Comparing…" />}
-            {!loading && !shownComparison.length && <Alert severity="info" title="No data for selected query" />}
+            <LoadStatus state={bodyLoad} loadingText="Comparing…" errorTitle="Could not compare" />
+            {bodyLoad.status === 'done' && !shownComparison.length && (
+              <Alert severity="info" title="No data for selected query" />
+            )}
             <div className={comparisonBy === ALL ? styles.comparisonGrid : styles.comparisonSingle}>
               {shownComparison.slice(0, 60).map((attribute) => (
                 <div key={attribute.key} className={styles.tile}>
@@ -938,9 +946,8 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
       {actionView === 'exceptions' && (
         <>
           <p className={styles.muted}>View exception details from errored traces for the current set of filters.</p>
-          {loading ? (
-            <LoadingPlaceholder text="Loading exceptions…" />
-          ) : exceptions.length ? (
+          <LoadStatus state={bodyLoad} loadingText="Loading exceptions…" errorTitle="Could not load exceptions" />
+          {bodyLoad.status !== 'done' ? null : exceptions.length ? (
             <ExceptionsTable
               groups={exceptions}
               from={range.from.valueOf()}
@@ -970,9 +977,8 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
           />
           <div className={styles.content}>
             <p className={styles.muted}>View a list of spans for the current set of filters, slowest first.</p>
-            {loading ? (
-              <LoadingPlaceholder text="Loading spans…" />
-            ) : spans.length ? (
+            <LoadStatus state={bodyLoad} loadingText="Loading spans…" errorTitle="Could not load spans" />
+            {bodyLoad.status !== 'done' ? null : spans.length ? (
               <SpanTable rows={spans} columns={spanListColumns} onOpen={(row) => model.openTrace(row['Trace ID'])} />
             ) : (
               <Alert severity="info" title="No data for selected query" />

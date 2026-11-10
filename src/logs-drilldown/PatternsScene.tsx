@@ -9,8 +9,22 @@ import {
   VizPanel,
   sceneGraph,
 } from '@grafana/scenes';
-import { Alert, Button, Icon, IconButton, Input, LoadingPlaceholder, useStyles2, useTheme2 } from '@grafana/ui';
-import { errorMessage, Format, frameRows, levelColors, queryRunner, runSql, sqlQuery } from '../shared';
+import { Alert, Button, Icon, IconButton, Input, useStyles2, useTheme2 } from '@grafana/ui';
+import {
+  DONE,
+  Format,
+  frameRows,
+  LatestRequest,
+  levelColors,
+  LoadState,
+  LoadStatus,
+  loadFailed,
+  LOADING,
+  queryRunner,
+  runSql,
+  sqlQuery,
+  tableStyle,
+} from '../shared';
 import { ALL_FILTERS, FILTERS, LEVELS, patternSamplesSql, patternsListSql, patternsVolumeSql } from './sql';
 import { namedSeries, stackedBars } from './panels';
 import { LogsExploration } from './LogsExploration';
@@ -24,8 +38,8 @@ interface PatternRow {
 
 interface PatternsSceneState extends SceneObjectState {
   rows: PatternRow[];
-  loading: boolean;
-  error?: string;
+  /** The pattern list for the current filters and time range. */
+  load: LoadState;
   search: string;
   volume?: VizPanel;
   expanded?: string;
@@ -41,26 +55,31 @@ const PATTERN_CONDITION = `${FILTERS} AND ${LEVELS}`;
 /** The Patterns tab: a chart of the most frequent patterns and the pattern table. */
 export class PatternsScene extends SceneObjectBase<PatternsSceneState> {
   constructor(state: Partial<PatternsSceneState>) {
-    super({ rows: [], loading: true, search: '', ...state });
+    super({ rows: [], load: LOADING, search: '', ...state });
     this.addActivationHandler(() => {
       this.load();
     });
   }
+
+  /** A filter or time range change while patterns load supersedes the request in flight. */
+  private request = new LatestRequest();
 
   getExploration() {
     return sceneGraph.getAncestor(this, LogsExploration);
   }
 
   async load() {
+    const isCurrent = this.request.start();
     const exploration = this.getExploration();
     const source = exploration.getSource();
     if (!source) {
+      this.setState({ load: DONE });
       return;
     }
     const range = sceneGraph.getTimeRange(this).state.value;
     const bucket = Math.max(1, (range.to.valueOf() - range.from.valueOf()) / 1000 / 60);
     this.setState({
-      loading: true,
+      load: LOADING,
       volume: stackedBars(
         namedSeries(queryRunner([sqlQuery('A', patternsVolumeSql(source, PATTERN_CONDITION))], 120)),
         'right'
@@ -85,10 +104,15 @@ export class PatternsScene extends SceneObjectBase<PatternsSceneState> {
         levels: Array.from(row.levels || []),
         series: Array.from(row.series || []).map((point) => [Number(point[0]), Number(point[1])] as [number, number]),
       }));
-      this.setState({ rows, loading: false });
+      if (!isCurrent()) {
+        return;
+      }
+      this.setState({ rows, load: DONE });
       exploration.setState({ patternsCount: rows.length });
     } catch (error) {
-      this.setState({ loading: false, error: errorMessage(error) });
+      if (isCurrent()) {
+        this.setState({ load: loadFailed(error) });
+      }
     }
   }
 
@@ -123,7 +147,7 @@ export class PatternsScene extends SceneObjectBase<PatternsSceneState> {
 
 function PatternsSceneRenderer({ model }: SceneComponentProps<PatternsScene>) {
   const styles = useStyles2(getStyles);
-  const { rows, loading, error, search, volume, expanded, samples } = model.useState();
+  const { rows, load, search, volume, expanded, samples } = model.useState();
   const { patterns } = model.getExploration().useState();
   const [sortBy, setSortBy] = useState<'count' | 'pattern'>('count');
   const total = rows.reduce((sum, row) => sum + row.total, 0) || 1;
@@ -149,12 +173,11 @@ function PatternsSceneRenderer({ model }: SceneComponentProps<PatternsScene>) {
           <volume.Component model={volume} />
         </div>
       )}
-      {error && <Alert title="Could not load patterns">{error}</Alert>}
-      {loading && <LoadingPlaceholder text="Loading patterns…" />}
-      {!loading && !error && !rows.length && (
+      <LoadStatus state={load} loadingText="Loading patterns…" errorTitle="Could not load patterns" />
+      {load.status === 'done' && !rows.length && (
         <Alert severity="info" title="No patterns found in the current time range." />
       )}
-      {!loading && rows.length > 0 && !shown.length && (
+      {load.status === 'done' && rows.length > 0 && !shown.length && (
         <Alert severity="info" title="No patterns match these filters." />
       )}
       {shown.length > 0 && (
@@ -286,21 +309,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
   container: css({ display: 'flex', flexDirection: 'column', gap: theme.spacing(1) }),
   muted: css({ color: theme.colors.text.secondary, margin: 0 }),
   volume: css({ height: 200 }),
-  table: css({
-    width: '100%',
-    borderCollapse: 'collapse',
-    'th, td': {
-      padding: theme.spacing(0.5, 1),
-      borderBottom: `1px solid ${theme.colors.border.weak}`,
-      textAlign: 'left',
-    },
-    th: {
-      position: 'sticky',
-      top: 0,
-      background: theme.colors.background.primary,
-      fontWeight: theme.typography.fontWeightMedium,
-    },
-  }),
+  table: tableStyle(theme),
   sortable: css({ cursor: 'pointer' }),
   number: css({ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }),
   pattern: css({
