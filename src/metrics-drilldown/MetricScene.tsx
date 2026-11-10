@@ -84,6 +84,11 @@ import {
   Toolbar,
   ToolbarGroup,
   supportsSignal,
+  oneOf,
+  probabilities,
+  LoadState,
+  DONE,
+  loadFailed,
 } from '../shared';
 import { countSql, logLinesSql, logsKeyExpression } from '../logs-drilldown/sql';
 import {
@@ -102,7 +107,8 @@ import { metricKindLabel, MetricsExploration } from './MetricsExploration';
 
 type ActionView = 'breakdown' | 'related' | 'logs';
 type BreakdownLayout = 'single' | 'grid' | 'rows';
-type HistogramBreakdownFn = 'sum' | 'p99' | 'p95' | 'p75' | 'p50';
+const histogramFns = ['sum', 'p99', 'p95', 'p75', 'p50'] as const;
+type HistogramBreakdownFn = (typeof histogramFns)[number];
 const ALL = '$__all';
 const quantileChoices = [0.5, 0.75, 0.9, 0.95, 0.99, 0.999];
 const SORT_KEY = 'breakdown.sortby';
@@ -119,6 +125,8 @@ interface MetricSceneState extends SceneObjectState {
   search: string;
   layout: BreakdownLayout;
   labels: MetricLabel[];
+  /** The metric's label names for the breakdown. */
+  labelsLoad: LoadState;
   summaryQuantiles: number[];
   relatedPrefix: string;
   relatedSearch: string;
@@ -168,6 +176,7 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
       search: '',
       layout: 'grid',
       labels: [],
+      labelsLoad: DONE,
       summaryQuantiles: [],
       relatedPrefix: 'all',
       relatedSearch: '',
@@ -205,8 +214,9 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     if (typeof values['var-groupby'] === 'string') {
       update.groupBy = values['var-groupby'] || ALL;
     }
-    if (typeof values['var-histogramBreakdownFn'] === 'string') {
-      update.histogramFn = values['var-histogramBreakdownFn'] as HistogramBreakdownFn;
+    const histogramFn = oneOf(values['var-histogramBreakdownFn'], histogramFns);
+    if (histogramFn) {
+      update.histogramFn = histogramFn;
     }
     if (values.breakdownLayout === 'single' || values.breakdownLayout === 'grid' || values.breakdownLayout === 'rows') {
       update.layout = values.breakdownLayout;
@@ -219,14 +229,17 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     if (typeof values.fn === 'string' && functions.includes(values.fn as MetricFunction)) {
       query = { ...query, fn: values.fn as MetricFunction };
     }
-    if (typeof values.agg === 'string') {
-      query = { ...query, aggregation: values.agg as MetricSeriesAggregation };
+    // The aggregation is an SQL function name and the quantiles go into quantile(), so only the
+    // values the app offers are taken.
+    const aggregation = oneOf(values.agg, Object.values(MetricSeriesAggregation));
+    if (aggregation) {
+      query = { ...query, aggregation };
     }
     if (values.q) {
-      query = {
-        ...query,
-        quantiles: (Array.isArray(values.q) ? values.q : [values.q]).map(Number).filter(Number.isFinite),
-      };
+      const quantiles = probabilities(Array.isArray(values.q) ? values.q : [values.q]);
+      if (quantiles.length) {
+        query = { ...query, quantiles };
+      }
     }
     update.query = query;
     if ('metricPrefix' in values) {
@@ -260,15 +273,20 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     const isCurrent = this.labelsRequest.start();
     const source = await this.getExploration()
       .loadSource()
+      // The metric list shows a failed source lookup as its own error; the labels have nothing to add.
       .catch(() => undefined);
     if (!source) {
       return;
     }
     const { entry } = this.state;
+    this.setState({ labelsLoad: LOADING });
     const [keys, quantiles] = await Promise.all([
       runSql(this, labelKeysSql(source, '1 = 1', entry), Format.Table, {
         requestId: this.labelsRequest.requestId('labels'),
-      }).catch(() => []),
+      }).then(
+        (frames) => ({ frames, error: undefined }),
+        (error: unknown) => ({ frames: [], error })
+      ),
       entry.type === MetricType.Summary
         ? runSql(
             this,
@@ -277,17 +295,20 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
             {
               requestId: this.labelsRequest.requestId('quantiles'),
             }
-          ).catch(() => [])
+          )
+            // The quantiles a summary reports only refine the quantile choices; the defaults stay.
+            .catch(() => [])
         : Promise.resolve([]),
     ]);
     if (!isCurrent()) {
       return;
     }
-    const labels = toMetricLabels(frameRows<{ source: string; key: string }>(keys));
+    // Without the attribute keys the breakdown still has the column labels; the error shows above it.
+    const labels = toMetricLabels(frameRows<{ source: string; key: string }>(keys.frames));
     const summaryQuantiles = frameRows<{ quantile: number }>(quantiles)
       .map((row) => Number(row.quantile))
       .filter((q) => q > 0 && q < 1);
-    this.setState({ labels, summaryQuantiles });
+    this.setState({ labels, summaryQuantiles, labelsLoad: keys.error ? loadFailed(keys.error) : DONE });
     this.build();
   }
 
@@ -561,6 +582,7 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
         this.setState({ logsCount: Number(rows[0]?.count || 0) });
       }
     } catch {
+      // The count is a badge on the Related logs tab: without it the tab shows none.
       if (isCurrent()) {
         this.setState({ logsCount: undefined });
       }
@@ -625,7 +647,8 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
 function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
   const styles = useStyles2(getStyles);
   const state = model.useState();
-  const { entry, query, main, body, actionView, groupBy, labels, sort, search, layout, summaryQuantiles } = state;
+  const { entry, query, main, body, actionView, groupBy, labels, labelsLoad, sort, search, layout, summaryQuantiles } =
+    state;
   const { histogramFn, relatedPrefix, relatedSearch, logsCount, logsUid } = state;
   const exploration = model.getExploration();
   const { catalog } = exploration.useState();
@@ -811,6 +834,14 @@ function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
       )}
       {actionView === 'breakdown' && !breakdownable && (
         <p className={styles.note}>A heatmap shows all series together; pick another function to break it down.</p>
+      )}
+      {actionView === 'breakdown' && (
+        <LoadStatus
+          state={labelsLoad}
+          quietLoading
+          loadingText="Loading labels…"
+          errorTitle="Error while loading the metric's labels"
+        />
       )}
       {actionView === 'breakdown' && breakdownable && groupBy === ALL && !labels.length && (
         <Alert severity="info" title="No labels found for the current filters and time range." />

@@ -8,6 +8,7 @@ import {
   SignalSource,
   tableSql,
 } from '../shared';
+import { escapeIdentifier } from 'clickhouse/sql';
 import { VAR_FILTERS } from '../constants';
 
 /**
@@ -99,7 +100,8 @@ const logsTable = (source: SignalSource) => tableSql(source.database, source.tab
  */
 export const logsTimeFilter = (source: SignalSource): string =>
   source.filterTimeColumn && source.filterTimeColumn !== 'Timestamp'
-    ? `$__timeFilter(${source.filterTimeColumn}) AND $__timeFilter(Timestamp)`
+    ? // The name comes from the data source settings: quoted as an identifier, never as SQL.
+      `$__timeFilter(${escapeIdentifier(source.filterTimeColumn)}) AND $__timeFilter(Timestamp)`
     : '$__timeFilter(Timestamp)';
 
 /** The columns of the logs panel: timestamp, body, level and the attributes as labels. */
@@ -161,6 +163,25 @@ export interface LineFilter {
   regex: boolean;
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+/** The line filters of a URL: entries without a text are dropped, missing flags read as false. */
+export const validLineFilters = (value: unknown): LineFilter[] =>
+  Array.isArray(value)
+    ? value.filter(isRecord).flatMap((filter) =>
+        typeof filter.text === 'string'
+          ? [
+              {
+                text: filter.text,
+                exclude: filter.exclude === true,
+                caseSensitive: filter.caseSensitive === true,
+                regex: filter.regex === true,
+              },
+            ]
+          : []
+      )
+    : [];
+
 export const lineFilterSql = (filter: LineFilter): string => {
   const text = quoteString(filter.text);
   const match = filter.regex
@@ -183,6 +204,18 @@ export interface AppliedPattern {
   type: 'include' | 'exclude';
   pattern: string;
 }
+
+/** The applied patterns of a URL: entries that are not an include or exclude of a text are dropped. */
+export const validPatterns = (value: unknown): AppliedPattern[] =>
+  Array.isArray(value)
+    ? value
+        .filter(isRecord)
+        .flatMap((p) =>
+          (p.type === 'include' || p.type === 'exclude') && typeof p.pattern === 'string'
+            ? [{ type: p.type, pattern: p.pattern } as AppliedPattern]
+            : []
+        )
+    : [];
 
 /** Included patterns are ORed, excluded ones ANDed, as in Logs Drilldown. */
 export const patternsSql = (patterns: AppliedPattern[]): string => {

@@ -219,6 +219,7 @@ export const loadTraceIndex = async (sceneObject: SceneObject, uid: string): Pro
       );
       traceIndexes.set(key, Number(rows[0]?.result) === 1 ? name : undefined);
     } catch {
+      // Without the index the trace lookup is unbounded: slower, but it still finds the trace.
       return source;
     }
   }
@@ -289,6 +290,7 @@ export const loadMetricsSource = async (sceneObject: SceneObject, uid: string): 
       resolvedMetrics.set(uid, result);
       return result;
     })();
+    // Forget a failed lookup so the next load tries again; the caller still gets the error.
     pending.catch(() => resolvingMetrics.delete(uid));
     resolvingMetrics.set(uid, pending);
   }

@@ -67,6 +67,8 @@ import {
   ToolbarGroup,
   valueSortOptions,
   errorMessage,
+  oneOf,
+  seriesSortOptions,
 } from '../shared';
 import { refreshFilterExpression } from '../shared/scene';
 import {
@@ -81,6 +83,8 @@ import {
   levelOrder,
   levelsSql,
   LineFilter,
+  validLineFilters,
+  validPatterns,
   lineFiltersSql,
   logLinesSql,
   patternsSql,
@@ -131,6 +135,10 @@ interface LogsExplorationState extends SceneObjectState {
   labels: DetectedKey[];
   fields: DetectedKey[];
   logsCount?: number;
+  /** The detected labels of the Labels tab. */
+  labelsLoad: LoadState;
+  /** The detected fields of the Fields tab. */
+  fieldsLoad: LoadState;
   patternsCount?: number;
   body?: SceneObject;
 }
@@ -188,6 +196,8 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
       landingLoad: LOADING,
       labels: [],
       fields: [],
+      labelsLoad: DONE,
+      fieldsLoad: DONE,
       ...state,
     });
     this.addActivationHandler(() => {
@@ -218,6 +228,7 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
       try {
         return typeof value === 'string' ? (JSON.parse(value) as T) : fallback;
       } catch {
+        // A hand-edited or truncated URL: the filters are dropped, as if none were set.
         return fallback;
       }
     };
@@ -227,10 +238,15 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
       labelBy: typeof values['var-labelBy'] === 'string' && values['var-labelBy'] ? values['var-labelBy'] : ALL,
       fieldBy: typeof values['var-fieldBy'] === 'string' && values['var-fieldBy'] ? values['var-fieldBy'] : ALL,
       levels: typeof values.levels === 'string' && values.levels ? values.levels.split(',') : [],
-      lineFilters: json<LineFilter[]>(values.lineFilters, []),
-      patterns: json<AppliedPattern[]>(values.patterns, []),
+      // Line filters and patterns are quoted into SQL: only well-formed entries are taken.
+      lineFilters: validLineFilters(json<unknown>(values.lineFilters, [])),
+      patterns: validPatterns(json<unknown>(values.patterns, [])),
       visualization: values.visualizationType === 'table' ? 'table' : 'logs',
-      sort: (values.sortBy as SeriesSort) || 'stddev-desc',
+      sort:
+        oneOf(
+          values.sortBy,
+          seriesSortOptions.map((option) => option.value)
+        ) ?? 'stddev-desc',
     });
     this.syncConditionVariables();
     if (this.isActive) {
@@ -528,29 +544,38 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     if (!source) {
       return;
     }
-    const [count, labels, fields] = await Promise.all([
+    this.setState({ labelsLoad: LOADING, fieldsLoad: LOADING });
+    const [count, labels, fields] = await Promise.allSettled([
       runSql(this, countSql(source, ALL_FILTERS), Format.Table, {
         requestId: this.countsRequest.requestId('count'),
-      }).catch(() => []),
+      }),
       runSql(this, detectedKeysSql(source, 'labels', ALL_FILTERS), Format.Table, {
         requestId: this.countsRequest.requestId('labels'),
-      }).catch(() => []),
+      }),
       runSql(this, detectedKeysSql(source, 'fields', ALL_FILTERS), Format.Table, {
         requestId: this.countsRequest.requestId('fields'),
-      }).catch(() => []),
+      }),
     ]);
     if (!isCurrent()) {
       return;
     }
-    const keys = (frames: typeof labels) =>
-      frameRows<{ key: string; cardinality: number }>(frames).map((row) => ({
-        key: row.key,
-        cardinality: Number(row.cardinality),
-      }));
+    const keys = (result: typeof labels) =>
+      result.status === 'fulfilled'
+        ? frameRows<{ key: string; cardinality: number }>(result.value).map((row) => ({
+            key: row.key,
+            cardinality: Number(row.cardinality),
+          }))
+        : [];
+    const loadState = (result: typeof labels) => (result.status === 'rejected' ? loadFailed(result.reason) : DONE);
     this.setState({
-      logsCount: Number(frameRows<{ count: number }>(count)[0]?.count ?? 0),
+      // The count is a badge on the Logs tab: without it the tab shows none, rather than 0.
+      logsCount:
+        count.status === 'fulfilled' ? Number(frameRows<{ count: number }>(count.value)[0]?.count ?? 0) : undefined,
       labels: keys(labels),
       fields: keys(fields),
+      // The Labels and Fields tabs list these keys, so a failure shows on its tab.
+      labelsLoad: loadState(labels),
+      fieldsLoad: loadState(fields),
     });
     const view = this.state.view;
     if (view === 'labels' || view === 'fields') {
@@ -785,6 +810,7 @@ function ServiceSelection({ model }: SceneComponentProps<LogsExploration>) {
   const [searchText, setSearchText] = useState(search);
   const [addingTab, setAddingTab] = useState(false);
   const [labelKeys, setLabelKeys] = useState<string[]>([]);
+  const [labelKeysError, setLabelKeysError] = useState<string>();
   const filters = model.getVariable(VAR_FILTERS, AdHocFiltersVariable);
   const { filters: labelFilters } = filters?.useState() || { filters: [] };
   useEffect(() => {
@@ -797,12 +823,16 @@ function ServiceSelection({ model }: SceneComponentProps<LogsExploration>) {
 
   const openAddTab = async () => {
     setAddingTab(true);
+    setLabelKeysError(undefined);
     const source = model.getSource();
     if (source) {
-      const rows = frameRows<{ key: string }>(
-        await runSql(model, detectedKeysSql(source, 'labels', FILTERS)).catch(() => [])
-      );
-      setLabelKeys(rows.map((row) => row.key).filter((key) => key !== 'level' && !tabs.includes(key)));
+      try {
+        const rows = frameRows<{ key: string }>(await runSql(model, detectedKeysSql(source, 'labels', FILTERS)));
+        setLabelKeys(rows.map((row) => row.key).filter((key) => key !== 'level' && !tabs.includes(key)));
+      } catch (error) {
+        setLabelKeys([]);
+        setLabelKeysError(errorMessage(error));
+      }
     }
   };
 
@@ -837,7 +867,12 @@ function ServiceSelection({ model }: SceneComponentProps<LogsExploration>) {
             <IconButton name="plus" aria-label="Add label tab" onClick={openAddTab} />
           </Tooltip>
         </TabsBar>
-        {addingTab && (
+        {addingTab && labelKeysError && (
+          <Alert severity="error" title="Could not load labels">
+            {labelKeysError}
+          </Alert>
+        )}
+        {addingTab && !labelKeysError && (
           <Combobox
             aria-label="Search labels"
             placeholder="Search labels"
@@ -1013,6 +1048,8 @@ function ServiceDetails({ model }: SceneComponentProps<LogsExploration>) {
     labels,
     fields,
     logsCount,
+    labelsLoad,
+    fieldsLoad,
     labelBy,
     fieldBy,
     visualization,
@@ -1024,6 +1061,7 @@ function ServiceDetails({ model }: SceneComponentProps<LogsExploration>) {
   const primary = model.getPrimaryFilter();
   const by = view === 'labels' ? labelBy : fieldBy;
   const keys = view === 'labels' ? labels : fields;
+  const keysLoad = view === 'labels' ? labelsLoad : fieldsLoad;
   const primaryName = keyDisplayName(model.state.primaryLabel);
 
   return (
@@ -1182,7 +1220,15 @@ function ServiceDetails({ model }: SceneComponentProps<LogsExploration>) {
           )}
         </Toolbar>
       )}
-      {view !== 'logs' && view !== 'patterns' && !keys.length && (
+      {(view === 'labels' || view === 'fields') && (
+        <LoadStatus
+          state={keysLoad}
+          quietLoading
+          loadingText={`Loading ${view}…`}
+          errorTitle={`Error while loading ${view}`}
+        />
+      )}
+      {view !== 'logs' && view !== 'patterns' && keysLoad.status === 'done' && !keys.length && (
         <Alert severity="info" title={`We did not find any ${view} for the given time range.`} />
       )}
       {body && (

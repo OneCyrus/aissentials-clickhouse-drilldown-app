@@ -12,7 +12,7 @@ import {
   useStyles2,
   useTheme2,
 } from '@grafana/ui';
-import { store, tableStyle } from '../shared';
+import { DONE, LoadState, LoadStatus, store, tableStyle } from '../shared';
 import { defaultFavorites, normalizeMessage } from './sql';
 
 const FAVORITES_KEY = 'traces.favorites.attributes';
@@ -34,8 +34,11 @@ export function AttributesSidebar({
   multi,
   allOption,
   filtered,
+  load = DONE,
 }: {
   attributes: string[];
+  /** The attribute list's load: its error shows in the sidebar instead of an empty list. */
+  load?: LoadState;
   selected: string[];
   onSelect: (attribute: string) => void;
   multi?: boolean;
@@ -51,6 +54,7 @@ export function AttributesSidebar({
       const regex = new RegExp(search, 'i');
       return (value: string) => regex.test(value);
     } catch {
+      // Not a valid regular expression (yet, while typing): match it as plain text.
       return (value: string) => value.toLowerCase().includes(search.toLowerCase());
     }
   }, [search]);
@@ -101,7 +105,15 @@ export function AttributesSidebar({
             All
           </button>
         )}
-        {shown.length === 0 && <span className={styles.muted}>No attributes match your criteria</span>}
+        <LoadStatus
+          state={load}
+          quietLoading
+          loadingText="Loading attributes…"
+          errorTitle="Error while loading attributes"
+        />
+        {load.status === 'done' && shown.length === 0 && (
+          <span className={styles.muted}>No attributes match your criteria</span>
+        )}
         {shown.map((attribute) => (
           <div key={attribute} className={cx(styles.item, selected.includes(attribute) && styles.selected)}>
             {multi ? (

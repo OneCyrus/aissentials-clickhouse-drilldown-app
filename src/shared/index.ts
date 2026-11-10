@@ -6,3 +6,4 @@ export * from './panels';
 export * from './store';
 export * from './ui';
 export * from './load';
+export * from './url';

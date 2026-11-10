@@ -64,6 +64,8 @@ import {
   LoadStatus,
   loadFailed,
   LOADING,
+  oneOf,
+  probabilities,
 } from '../shared';
 import { refreshFilterExpression } from '../shared/scene';
 import {
@@ -102,8 +104,10 @@ import {
   ComparisonRow,
 } from './components';
 
-type ActionView = 'breakdown' | 'comparison' | 'exceptions' | 'traceList';
-type Layout = 'single' | 'grid' | 'rows';
+const actionViews = ['breakdown', 'comparison', 'exceptions', 'traceList'] as const;
+type ActionView = (typeof actionViews)[number];
+const layouts = ['single', 'grid', 'rows'] as const;
+type Layout = (typeof layouts)[number];
 
 interface TracesExplorationState extends SceneObjectState {
   primarySignal: string;
@@ -121,6 +125,8 @@ interface TracesExplorationState extends SceneObjectState {
   thresholdAuto: boolean;
   traceId?: string;
   attributes: string[];
+  /** The attribute list of the sidebars. */
+  attributesLoad: LoadState;
   comparison: ComparisonAttribute[];
   exceptions: ReturnType<typeof groupExceptions>;
   spans: SpanRow[];
@@ -185,6 +191,7 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
       spanListColumns: [],
       thresholdAuto: true,
       attributes: [],
+      attributesLoad: DONE,
       comparison: [],
       exceptions: [],
       spans: [],
@@ -218,14 +225,19 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
   updateFromUrl(values: SceneObjectUrlValues) {
     const list = (value: unknown) => (Array.isArray(value) ? value.map(String) : value ? [String(value)] : []);
     const update: Partial<TracesExplorationState> = {};
-    if (typeof values['var-primarySignal'] === 'string') {
-      update.primarySignal = values['var-primarySignal'];
+    const primarySignal = oneOf(
+      values['var-primarySignal'],
+      primarySignals.map((signal) => signal.value)
+    );
+    if (primarySignal) {
+      update.primarySignal = primarySignal;
     }
     if (values['var-metric'] === 'rate' || values['var-metric'] === 'errors' || values['var-metric'] === 'duration') {
       update.metric = values['var-metric'];
     }
     if (typeof values.actionView === 'string') {
-      update.actionView = values.actionView as ActionView;
+      // An unknown tab falls back to the default one.
+      update.actionView = oneOf(values.actionView, actionViews) ?? 'breakdown';
     }
     if (typeof values['var-groupBy'] === 'string') {
       update.groupBy = values['var-groupBy'];
@@ -234,10 +246,14 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
       update.comparisonBy = values.comparisonBy ? String(values.comparisonBy) : ALL;
     }
     if (values['var-durationPercentiles']) {
-      update.percentiles = list(values['var-durationPercentiles']).map(Number).filter(Number.isFinite);
+      // Percentiles reach quantilesTDigest, which takes only levels between 0 and 1.
+      const percentiles = probabilities(list(values['var-durationPercentiles']));
+      if (percentiles.length) {
+        update.percentiles = percentiles;
+      }
     }
     if ('layout' in values) {
-      update.layout = (values.layout as Layout) || 'grid';
+      update.layout = oneOf(values.layout, layouts) ?? 'grid';
     }
     if ('var-spanListColumns' in values) {
       update.spanListColumns = list(values['var-spanListColumns']);
@@ -299,21 +315,31 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
     this.buildPanels(source);
     if (all) {
       const isCurrent = this.attributesRequest.start();
+      this.setState({ attributesLoad: LOADING });
       const [keys, buckets] = await Promise.all([
         runSql(this, attributeKeysSql(source, `${PRIMARY} AND ${FILTERS}`), Format.Table, {
           requestId: this.attributesRequest.requestId('keys'),
-        }).catch(() => []),
+        }).then(
+          (frames) => ({ frames, error: undefined }),
+          (error: unknown) => ({ frames: [], error })
+        ),
         runSql(this, durationBucketsSql(source), Format.Table, {
           requestId: this.attributesRequest.requestId('buckets'),
-        }).catch(() => []),
+        })
+          // The buckets only place the default duration selection; without them it keeps its threshold.
+          .catch(() => []),
       ]);
       if (!isCurrent()) {
         // A newer full refresh (span set or filters changed) owns the attributes and the body.
         return;
       }
-      const attributes = frameRows<{ key: string }>(keys).map((row) => row.key);
+      const attributes = frameRows<{ key: string }>(keys.frames).map((row) => row.key);
       const auto = slowestQuarterThreshold(frameRows<{ bucket: number }>(buckets).map((row) => Number(row.bucket)));
-      this.setState({ attributes, threshold: this.state.thresholdAuto ? auto : this.state.threshold });
+      this.setState({
+        attributes,
+        attributesLoad: keys.error ? loadFailed(keys.error) : DONE,
+        threshold: this.state.thresholdAuto ? auto : this.state.threshold,
+      });
     }
     this.buildBody(source);
   }
@@ -619,6 +645,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
     durationPanel,
     body,
     attributes,
+    attributesLoad,
     groupBy,
     comparisonBy,
     percentiles,
@@ -808,6 +835,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
         <div className={styles.split}>
           <AttributesSidebar
             attributes={attributes}
+            load={attributesLoad}
             selected={[groupBy]}
             filtered={filteredKeys}
             onSelect={(attribute) => model.setExploration({ groupBy: attribute })}
@@ -873,6 +901,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
         <div className={styles.split}>
           <AttributesSidebar
             attributes={attributes}
+            load={attributesLoad}
             selected={[comparisonBy]}
             filtered={[]}
             allOption
@@ -997,6 +1026,7 @@ function TracesView({ model }: SceneComponentProps<TracesExploration>) {
         <div className={styles.split}>
           <AttributesSidebar
             attributes={attributes}
+            load={attributesLoad}
             selected={spanListColumns}
             filtered={[]}
             multi
