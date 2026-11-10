@@ -160,8 +160,14 @@ export const errorMessage = (error: unknown): string => {
     return error.message;
   }
   if (typeof error === 'object' && error) {
-    const e = error as { data?: { message?: string; error?: string }; message?: string; statusText?: string };
-    return e.data?.message || e.data?.error || e.message || e.statusText || JSON.stringify(error);
+    const e = error as {
+      data?: { message?: string; error?: string; results?: Record<string, { error?: string }> };
+      message?: string;
+      statusText?: string;
+    };
+    // A failed /api/ds/query answers 400 with the database's message in the query's result.
+    const queryError = Object.values(e.data?.results || {}).find((result) => result?.error)?.error;
+    return queryError || e.data?.message || e.data?.error || e.message || e.statusText || JSON.stringify(error);
   }
   return String(error);
 };

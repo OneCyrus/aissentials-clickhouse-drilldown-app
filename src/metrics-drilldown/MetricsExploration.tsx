@@ -51,6 +51,7 @@ import {
   searchMatches,
   SignalSource,
   store,
+  oneOf,
 } from '../shared';
 import {
   catalogSql,
@@ -73,7 +74,8 @@ const GROUPS_STEP = 10;
 const RECENT_KEY = 'recent-metrics';
 
 type GridLayout = 'grid' | 'rows';
-type SortBy = 'default' | 'alphabetical' | 'alphabetical-reversed';
+const sortOptions = ['default', 'alphabetical', 'alphabetical-reversed'] as const;
+type SortBy = (typeof sortOptions)[number];
 type SidebarSection = 'filters-prefix' | 'filters-suffix' | 'filters-type' | 'labels';
 
 interface MetricGroup {
@@ -237,7 +239,7 @@ export class MetricsExploration extends SceneObjectBase<MetricsExplorationState>
       update.layout = values.layout === 'rows' ? 'rows' : 'grid';
     }
     if ('sort' in values) {
-      update.sortBy = (values.sort as SortBy) || 'default';
+      update.sortBy = oneOf(values.sort, sortOptions) ?? 'default';
     }
     const groupByChanged = 'groupBy' in update && update.groupBy !== this.state.groupBy;
     this.setState(update);

@@ -28,9 +28,15 @@ const source = (filterTimeColumn?: string): SignalSource => ({
  */
 describe('logs time filter', () => {
   it('filters on the configured partition column and keeps the exact range on Timestamp', () => {
-    expect(logsTimeFilter(source('TimestampTime'))).toBe('$__timeFilter(TimestampTime) AND $__timeFilter(Timestamp)');
-    expect(logLinesSql(source('TimestampTime'), '1 = 1')).toContain('$__timeFilter(TimestampTime)');
-    expect(countSql(source('TimestampTime'), '1 = 1')).toContain('$__timeFilter(TimestampTime)');
+    expect(logsTimeFilter(source('TimestampTime'))).toBe('$__timeFilter("TimestampTime") AND $__timeFilter(Timestamp)');
+    expect(logLinesSql(source('TimestampTime'), '1 = 1')).toContain('$__timeFilter("TimestampTime")');
+    expect(countSql(source('TimestampTime'), '1 = 1')).toContain('$__timeFilter("TimestampTime")');
+  });
+
+  it('quotes the configured column as an identifier, so a setting cannot inject SQL', () => {
+    expect(logsTimeFilter(source('x) OR 1 = 1 OR ("y'))).toBe(
+      '$__timeFilter("x) OR 1 = 1 OR (""y") AND $__timeFilter(Timestamp)'
+    );
   });
 
   it('filters on Timestamp only without a configured column, or when it is Timestamp itself', () => {

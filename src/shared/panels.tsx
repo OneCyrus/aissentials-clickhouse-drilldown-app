@@ -102,6 +102,7 @@ export const searchMatches = (text: string): ((value: string) => boolean) => {
       try {
         return [new RegExp(piece, 'i')];
       } catch {
+        // An invalid piece (e.g. while typing) matches nothing rather than breaking the search.
         return [];
       }
     });

@@ -7,6 +7,7 @@ export const store = {
       const raw = window.localStorage.getItem(`${PLUGIN_ID}.${key}`);
       return raw === null ? fallback : (JSON.parse(raw) as T);
     } catch {
+      // Storage unavailable or a corrupt entry: the default preference applies.
       return fallback;
     }
   },
