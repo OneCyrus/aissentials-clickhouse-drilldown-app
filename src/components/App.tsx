@@ -55,8 +55,8 @@ export const App = (_props: AppRootProps) => {
   if (!getClickHouseDataSources().length) {
     return (
       <Alert title="No ClickHouse data source" severity="info">
-        AIssentials ClickHouse Drilldown reads OpenTelemetry data through the ClickHouse data source. Add one under
-        Connections, Data sources.
+        The ClickHouse app reads OpenTelemetry data through the ClickHouse data source. Add one under Connections, Data
+        sources.
       </Alert>
     );
   }

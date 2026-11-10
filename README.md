@@ -1,4 +1,4 @@
-# AIssentials ClickHouse Drilldown
+# ClickHouse app for Grafana
 
 [![CI](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/actions/workflows/ci.yml/badge.svg)](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/OneCyrus/aissentials-clickhouse-drilldown-app?sort=semver)](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/latest)
@@ -7,7 +7,7 @@
 
 **Explore OpenTelemetry metrics, logs and traces in ClickHouse without writing a single query.**
 
-AIssentials ClickHouse Drilldown is a Grafana app for OpenTelemetry data stored in ClickHouse by the [OpenTelemetry Collector ClickHouse exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/clickhouseexporter). Pick a metric, a service or a span set and narrow it down by clicking: every chart, breakdown and filter is a query that runs through the ClickHouse data source, with its connection and permissions.
+**ClickHouse** is a Grafana app for OpenTelemetry data stored in ClickHouse by the [OpenTelemetry Collector ClickHouse exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/clickhouseexporter). Pick a metric, a service or a span set and narrow it down by clicking: every chart, breakdown and filter is a query that runs through the ClickHouse data source, with its connection and permissions.
 
 ![Metrics overview](src/img/screenshots/metrics-overview.png)
 
@@ -46,7 +46,7 @@ AIssentials ClickHouse Drilldown is a Grafana app for OpenTelemetry data stored 
 
 ### Everywhere in Grafana
 
-Panels on dashboards and Explore queries of the ClickHouse data source get an **Open in AIssentials ClickHouse Drilldown** entry, in the panel menu and the Explore toolbar. It opens the matching app with the same time range; a metrics query opens its metric.
+Panels on dashboards and Explore queries of the ClickHouse data source get an **Open in ClickHouse app** entry, in the panel menu and the Explore toolbar. It opens the matching page (Metrics, Logs or Traces) with the same time range; a metrics query opens its metric.
 
 ## Requirements
 
@@ -66,11 +66,11 @@ Panels on dashboards and Explore queries of the ClickHouse data source get an **
 
    ```bash
    grafana cli \
-     --pluginUrl https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/download/v0.1.0/aissentials-clickhousedrilldown-app-0.1.0.zip \
+     --pluginUrl https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/latest/download/aissentials-clickhousedrilldown-app.zip \
      plugins install aissentials-clickhousedrilldown-app
    ```
 
-   Or download the ZIP and unzip it into Grafana's plugin directory.
+   Or download the ZIP and unzip it into Grafana's plugin directory. Run the same command again to update to the latest release.
 
 3. The app is not signed yet. Allow it in `grafana.ini`:
 
@@ -80,7 +80,7 @@ Panels on dashboards and Explore queries of the ClickHouse data source get an **
    ```
 
 4. Restart Grafana.
-5. Add a ClickHouse data source under **Connections → Data sources** (see [Configuration](#configuration)), then open **Apps → AIssentials ClickHouse Drilldown**.
+5. Add a ClickHouse data source under **Connections → Data sources** (see [Configuration](#configuration)), then open **Apps → ClickHouse**.
 
 ### Docker
 
@@ -88,14 +88,16 @@ With the Grafana Docker image (Grafana 12 or later), both plugins are installed 
 
 ```bash
 docker run -p 3000:3000 \
-  -e GF_PLUGINS_PREINSTALL_SYNC="grafana-clickhouse-datasource,aissentials-clickhousedrilldown-app@0.1.0@https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/download/v0.1.0/aissentials-clickhousedrilldown-app-0.1.0.zip" \
+  -e GF_PLUGINS_PREINSTALL_SYNC="grafana-clickhouse-datasource,aissentials-clickhousedrilldown-app@@https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/latest/download/aissentials-clickhousedrilldown-app.zip" \
   -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=aissentials-clickhousedrilldown-app \
   grafana/grafana
 ```
 
+The empty version (`@@`) installs the latest release and updates to the newest one on every start. To stay on one version, name it and its archive: `aissentials-clickhousedrilldown-app@X.Y.Z@https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/download/vX.Y.Z/aissentials-clickhousedrilldown-app-X.Y.Z.zip`.
+
 ### Show the pages in the Drilldown menu
 
-By default the app appears under **Apps** as **AIssentials ClickHouse Drilldown**, with **Metrics (ClickHouse)**, **Logs (ClickHouse)** and **Traces (ClickHouse)** below it. To list the three pages directly in Grafana's **Drilldown** menu section, add to `grafana.ini`:
+By default the app appears under **Apps** as **ClickHouse**, with **Metrics**, **Logs** and **Traces** below it. To list the three pages directly in Grafana's **Drilldown** menu section, add to `grafana.ini`:
 
 ```ini
 [navigation.app_standalone_pages]
@@ -104,7 +106,7 @@ By default the app appears under **Apps** as **AIssentials ClickHouse Drilldown*
 /a/aissentials-clickhousedrilldown-app/traces = drilldown
 ```
 
-Or, to keep them grouped under **AIssentials ClickHouse Drilldown** inside the Drilldown section:
+Or, to keep them grouped under **ClickHouse** inside the Drilldown section:
 
 ```ini
 [navigation.app_sections]
@@ -113,9 +115,9 @@ aissentials-clickhousedrilldown-app = drilldown
 
 With Docker, mount a `grafana.ini` with these settings (for example to `/etc/grafana/grafana.ini`).
 
-### Versions
+### Updates
 
-Every change to `main` is released as a new patch version. The [latest release](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/latest) is always the current state; its notes list the changes.
+The [latest release](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/latest) is always the current version; its notes list the changes, and [CHANGELOG.md](CHANGELOG.md) summarizes them.
 
 ## Configuration
 

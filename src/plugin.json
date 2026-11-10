@@ -49,8 +49,8 @@
     "addedLinks": [
       {
         "targets": ["grafana/dashboard/panel/menu", "grafana/explore/toolbar/action"],
-        "title": "Open in AIssentials ClickHouse Drilldown",
-        "description": "Browse the data of this query in AIssentials ClickHouse Drilldown"
+        "title": "Open in ClickHouse app",
+        "description": "Browse the data of this query on the Metrics, Logs or Traces page of the ClickHouse app"
       }
     ]
   },
