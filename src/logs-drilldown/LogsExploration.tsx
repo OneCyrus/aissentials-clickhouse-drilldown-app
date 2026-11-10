@@ -314,7 +314,9 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     this.setState({ landingLoad: LOADING });
     try {
       const rows = frameRows<{ value: string; count: number }>(
-        await runSql(this, valueCountsSql(source, this.state.primaryLabel, FILTERS))
+        await runSql(this, valueCountsSql(source, this.state.primaryLabel, FILTERS), Format.Table, {
+          requestId: this.landingRequest.requestId(),
+        })
       );
       if (isCurrent()) {
         this.setState({
@@ -462,14 +464,13 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
     const volume = fill(volumes, tileVolume);
     const line = fill(lines, tileLines);
     await Promise.all([
-      runSql(this, landingVolumeSql(source, primaryLabel, values, FILTERS), Format.TimeSeries, undefined, 100).then(
-        volume.done,
-        volume.failed
-      ),
-      runSql(this, landingLinesSql(source, primaryLabel, values, FILTERS, 100), Format.Logs).then(
-        line.done,
-        line.failed
-      ),
+      runSql(this, landingVolumeSql(source, primaryLabel, values, FILTERS), Format.TimeSeries, {
+        maxDataPoints: 100,
+        requestId: this.tilesRequest.requestId('volume'),
+      }).then(volume.done, volume.failed),
+      runSql(this, landingLinesSql(source, primaryLabel, values, FILTERS, 100), Format.Logs, {
+        requestId: this.tilesRequest.requestId('lines'),
+      }).then(line.done, line.failed),
     ]);
   }
 
@@ -528,9 +529,15 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
       return;
     }
     const [count, labels, fields] = await Promise.all([
-      runSql(this, countSql(source, ALL_FILTERS)).catch(() => []),
-      runSql(this, detectedKeysSql(source, 'labels', ALL_FILTERS)).catch(() => []),
-      runSql(this, detectedKeysSql(source, 'fields', ALL_FILTERS)).catch(() => []),
+      runSql(this, countSql(source, ALL_FILTERS), Format.Table, {
+        requestId: this.countsRequest.requestId('count'),
+      }).catch(() => []),
+      runSql(this, detectedKeysSql(source, 'labels', ALL_FILTERS), Format.Table, {
+        requestId: this.countsRequest.requestId('labels'),
+      }).catch(() => []),
+      runSql(this, detectedKeysSql(source, 'fields', ALL_FILTERS), Format.Table, {
+        requestId: this.countsRequest.requestId('fields'),
+      }).catch(() => []),
     ]);
     if (!isCurrent()) {
       return;

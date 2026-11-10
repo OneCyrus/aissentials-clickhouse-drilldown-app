@@ -158,7 +158,9 @@ export const loadSignalSource = async (
   if (!pending) {
     pending = (async () => {
       const columns = frameRows<{ name: string; type: string }>(
-        await runSql(sceneObject, `DESC TABLE ${tableSql(source.database, source.table)}`, Format.Table, uid)
+        await runSql(sceneObject, `DESC TABLE ${tableSql(source.database, source.table)}`, Format.Table, {
+          datasourceUid: uid,
+        })
       ).map((row) => ({ name: String(row.name), type: String(row.type) }));
       const shape: AttributeShape = { jsonAttributes: hasJsonAttributes(columns) };
       if (shape.jsonAttributes) {
@@ -167,7 +169,7 @@ export const loadSignalSource = async (
             sceneObject,
             "SELECT count() AS count FROM system.functions WHERE name = 'JSONAllValues'",
             Format.Table,
-            uid
+            { datasourceUid: uid }
           )
         );
         shape.jsonAllValues = Number(rows[0]?.count) > 0;
@@ -211,7 +213,9 @@ export const loadTraceIndex = async (sceneObject: SceneObject, uid: string): Pro
     const name = traceIndexName(source.table, config);
     try {
       const rows = frameRows<{ result: number }>(
-        await runSql(sceneObject, `EXISTS TABLE ${tableSql(source.database, name)}`, Format.Table, uid)
+        await runSql(sceneObject, `EXISTS TABLE ${tableSql(source.database, name)}`, Format.Table, {
+          datasourceUid: uid,
+        })
       );
       traceIndexes.set(key, Number(rows[0]?.result) === 1 ? name : undefined);
     } catch {
@@ -259,7 +263,9 @@ export const loadMetricsSource = async (sceneObject: SceneObject, uid: string): 
           : resolveMetricTables(
               getConfiguredMetricTables(jsonData(getDataSourceSrv().getInstanceSettings(uid)!).metrics),
               frameRows<{ name: string }>(
-                await runSql(sceneObject, `SHOW TABLES FROM "${database.replace(/"/g, '""')}"`, Format.Table, uid)
+                await runSql(sceneObject, `SHOW TABLES FROM "${database.replace(/"/g, '""')}"`, Format.Table, {
+                  datasourceUid: uid,
+                })
               ).map((row) => String(row.name))
             );
       // One DESC per distinct table: the columns of a metric table are what tells a JSON
@@ -270,7 +276,9 @@ export const loadMetricsSource = async (sceneObject: SceneObject, uid: string): 
         try {
           features.jsonAttributes = getMetricTableFeatures(
             frameRows<{ name: string; type: string }>(
-              await runSql(sceneObject, `DESC TABLE ${tableSql(database, firstTable)}`, Format.Table, uid)
+              await runSql(sceneObject, `DESC TABLE ${tableSql(database, firstTable)}`, Format.Table, {
+                datasourceUid: uid,
+              })
             ).map((row) => ({ name: String(row.name), type: String(row.type) }))
           ).jsonAttributes;
         } catch {

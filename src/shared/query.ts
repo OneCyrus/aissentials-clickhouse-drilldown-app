@@ -1,7 +1,7 @@
 import { DataFrame, dataFrameFromJSON, DataFrameJSON, rangeUtil } from '@grafana/data';
 import { getBackendSrv } from '@grafana/runtime';
 import { SceneDataQuery, SceneObject, SceneQueryRunner, sceneGraph } from '@grafana/scenes';
-import { lastValueFrom } from 'rxjs';
+import { EmptyError, lastValueFrom } from 'rxjs';
 import { CLICKHOUSE_DS_TYPE, VAR_DATASOURCE } from '../constants';
 
 /** The plugin backend's result formats (sqlds). */
@@ -58,44 +58,81 @@ export const interpolate = (sceneObject: SceneObject, text: string): string =>
     Array.isArray(value) ? value.join(',') : String(value ?? '')
   );
 
+export interface RunSqlOptions {
+  /** Another data source than the scene's. */
+  datasourceUid?: string;
+  /** For time series: the number of buckets $__timeInterval and $__interval_s aim at, like a panel's. */
+  maxDataPoints?: number;
+  /**
+   * Grafana cancels a request still in flight when another one with the same id starts, so a
+   * superseded load stops its query instead of letting it run to the end. Use one id per kind of
+   * request (see LatestRequest.requestId), never one shared by requests that run side by side.
+   */
+  requestId?: string;
+}
+
+/** A request that a newer one with the same requestId cancelled. Its load is superseded. */
+export class RequestCancelledError extends Error {
+  constructor() {
+    super('The request was cancelled by a newer one.');
+    this.name = 'RequestCancelledError';
+  }
+}
+
+/** Whether an error is a cancellation by a newer request, which is not a failure to show. */
+export const isRequestCancelled = (error: unknown): boolean => error instanceof RequestCancelledError;
+
 /**
  * Runs SQL outside a panel, for lists such as label keys and values. Uses the scene's data
- * source and time range; the backend expands the time macros.
+ * source and time range; the backend expands the time macros. A request cancelled through its
+ * requestId rejects with RequestCancelledError.
  */
 export const runSql = async (
   sceneObject: SceneObject,
   sql: string,
   format: Format = Format.Table,
-  datasourceUid?: string,
-  /** For time series: the number of buckets $__timeInterval and $__interval_s aim at, like a panel's. */
-  maxDataPoints?: number
+  { datasourceUid, maxDataPoints, requestId }: RunSqlOptions = {}
 ): Promise<DataFrame[]> => {
   const uid = datasourceUid || interpolate(sceneObject, `\${${VAR_DATASOURCE}}`);
   const range = sceneGraph.getTimeRange(sceneObject).state.value;
   const interval = maxDataPoints ? rangeUtil.calculateInterval(range, maxDataPoints) : undefined;
-  const response = await lastValueFrom(
-    getBackendSrv().fetch<{
-      results: Record<string, { frames?: DataFrameJSON[]; error?: string }>;
-    }>({
-      url: '/api/ds/query',
-      method: 'POST',
-      data: {
-        from: String(range.from.valueOf()),
-        to: String(range.to.valueOf()),
-        queries: [
-          {
-            refId: 'A',
-            datasource: { type: CLICKHOUSE_DS_TYPE, uid },
-            editorType: 'sql',
-            rawSql: interpolate(sceneObject, sql),
-            format,
-            ...(interval ? { intervalMs: interval.intervalMs, maxDataPoints } : {}),
-          },
-        ],
-      },
-      showErrorAlert: false,
-    })
-  );
+  const request = getBackendSrv().fetch<{
+    results: Record<string, { frames?: DataFrameJSON[]; error?: string }>;
+  }>({
+    url: '/api/ds/query',
+    method: 'POST',
+    ...(requestId ? { requestId } : {}),
+    data: {
+      from: String(range.from.valueOf()),
+      to: String(range.to.valueOf()),
+      queries: [
+        {
+          refId: 'A',
+          datasource: { type: CLICKHOUSE_DS_TYPE, uid },
+          editorType: 'sql',
+          rawSql: interpolate(sceneObject, sql),
+          format,
+          ...(interval ? { intervalMs: interval.intervalMs, maxDataPoints } : {}),
+        },
+      ],
+    },
+    showErrorAlert: false,
+  });
+  let response;
+  try {
+    response = await lastValueFrom(request);
+  } catch (error) {
+    // A newer request with the same id completes this one without a response (EmptyError), or
+    // Grafana reports the aborted fetch as cancelled.
+    if (
+      error instanceof EmptyError ||
+      (error instanceof Error && error.name === 'EmptyError') ||
+      (typeof error === 'object' && error && 'cancelled' in error && error.cancelled)
+    ) {
+      throw new RequestCancelledError();
+    }
+    throw error;
+  }
   const result = response.data.results?.A;
   if (result?.error) {
     throw new Error(result.error);

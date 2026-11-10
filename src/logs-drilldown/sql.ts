@@ -245,13 +245,6 @@ export const patternsListSql = (source: SignalSource, condition: string, bucketS
   `FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} GROUP BY pattern, level, t` +
   `) GROUP BY pattern ORDER BY total DESC LIMIT 500`;
 
-/** Count over time of the most frequent patterns. */
-export const patternsVolumeSql = (source: SignalSource, condition: string, limit = 20): string =>
-  `SELECT $__timeInterval(Timestamp) AS time, ${patternExpression} AS pattern, count() AS count FROM ${logsTable(source)} ` +
-  `WHERE ${logsTimeFilter(source)} AND ${condition} AND ${patternExpression} IN (` +
-  `SELECT ${patternExpression} FROM ${logsTable(source)} WHERE ${logsTimeFilter(source)} AND ${condition} ` +
-  `GROUP BY 1 ORDER BY count() DESC LIMIT ${limit}) GROUP BY time, pattern ORDER BY time ASC`;
-
 /** Sample lines of one pattern. */
 export const patternSamplesSql = (source: SignalSource, condition: string, pattern: string): string =>
   logLinesSql(source, `${condition} AND ${patternExpression} = ${quoteString(pattern)}`, 20);
