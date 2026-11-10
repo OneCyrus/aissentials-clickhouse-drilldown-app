@@ -52,6 +52,7 @@ import {
   LoadStatus,
   loadFailed,
   LOADING,
+  panelQueryRunner,
   queryRunner,
   runSql,
   SeriesSort,
@@ -641,7 +642,7 @@ export class LogsExploration extends SceneObjectBase<LogsExplorationState> {
         children: ordered.map(({ key, cardinality }) =>
           stackedBars(
             namedSeries(
-              queryRunner([sqlQuery('A', volumeByValueSql(source, key, ALL_FILTERS, 20))], 80),
+              panelQueryRunner([sqlQuery('A', volumeByValueSql(source, key, ALL_FILTERS, 20))], 80),
               key === 'level'
             ),
             'hidden'

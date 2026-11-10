@@ -29,8 +29,28 @@ export const sqlQuery = (
   format,
 });
 
+/**
+ * A query runner that is not a panel's own data, e.g. one shared by a SceneByFrameRepeater. It
+ * runs as soon as it is activated.
+ */
 export const queryRunner = (queries: SceneDataQuery[], maxDataPoints?: number): SceneQueryRunner =>
   new SceneQueryRunner({ datasource: queries[0]?.datasource || datasourceRef, queries, maxDataPoints });
+
+/**
+ * The query runner of one panel: the panel's data directly or through SceneDataTransformers (they
+ * pass the in-view state on). It runs once the panel is rendered and in view, so the panels of a
+ * lazy grid query only when they are scrolled into view.
+ *
+ * A runner starts out "in view" and runs when it is activated, which happens before its panel's
+ * renderer reports whether the panel is visible, so every panel of a lazy grid would query at once.
+ * This one starts out of view; the renderer reports the real state when it mounts (true outside a
+ * lazy grid), and the runner runs then. maxDataPoints stays fixed, so the resolution is unchanged.
+ */
+export const panelQueryRunner = (queries: SceneDataQuery[], maxDataPoints?: number): SceneQueryRunner => {
+  const runner = queryRunner(queries, maxDataPoints);
+  runner.isInViewChanged(false);
+  return runner;
+};
 
 /** Interpolates scene variables without quoting, as the data source does. */
 export const interpolate = (sceneObject: SceneObject, text: string): string =>
