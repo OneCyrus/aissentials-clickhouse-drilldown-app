@@ -66,6 +66,7 @@ import {
   metricTableOf,
   headerButton,
   SignalSource,
+  panelQueryRunner,
   queryRunner,
   runSql,
   searchMatches,
@@ -407,7 +408,7 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
         autoRows: '220px',
         isLazy: true,
         children: labels.slice(0, 60).map((label) => {
-          const runner = queryRunner([sqlQuery('A', metricSql(source, this.breakdownQuery([label])))], 250);
+          const runner = panelQueryRunner([sqlQuery('A', metricSql(source, this.breakdownQuery([label])))], 250);
           return metricPanel(source, entry, this.breakdownQuery([label]), { title: label.key, legend: false })
             .setData(
               splitSeriesData(

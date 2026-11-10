@@ -5,7 +5,7 @@ import { map } from 'rxjs';
 import { toHeatmapFrame } from 'clickhouse/heatmap';
 import { LegendDisplayMode, TooltipDisplayMode } from '@grafana/schema';
 import { MetricFunction, MetricQuery, MetricType } from 'clickhouse/types';
-import { grafanaUnit, headerButton, queryRunner, sqlQuery, SignalSource } from '../shared';
+import { grafanaUnit, headerButton, panelQueryRunner, sqlQuery, SignalSource } from '../shared';
 import { defaultMetricQuery, metricSql } from './sql';
 
 /** Fixed colors per grid position, like the Drilldown grid: the first 8 colors of Grafana's classic palette. */
@@ -35,7 +35,7 @@ const heatmapPanel = (source: SignalSource, entry: MetricCatalogEntry, query: Me
     .setTitle(options.title ?? entry.name)
     .setData(
       new SceneDataTransformer({
-        $data: queryRunner([sqlQuery('A', metricSql(source, query))], options.maxDataPoints ?? 300),
+        $data: panelQueryRunner([sqlQuery('A', metricSql(source, query))], options.maxDataPoints ?? 300),
         // The bucket rows as heatmap rows, as the data source does for its own heatmap queries.
         transformations: [() => (frames) => frames.pipe(map((data: DataFrame[]) => data.map(toHeatmapFrame)))],
       })
@@ -72,7 +72,7 @@ const timeseriesPanel = (
 ) => {
   const builder = PanelBuilders.timeseries()
     .setTitle(options.title ?? entry.name)
-    .setData(queryRunner([sqlQuery('A', metricSql(source, query))], options.maxDataPoints ?? 300))
+    .setData(panelQueryRunner([sqlQuery('A', metricSql(source, query))], options.maxDataPoints ?? 300))
     .setOption('legend', {
       showLegend: Boolean(options.legend),
       displayMode: LegendDisplayMode.List,
