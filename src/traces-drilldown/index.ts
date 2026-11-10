@@ -1,20 +1,21 @@
 import { EmbeddedScene, TextBoxVariable } from '@grafana/scenes';
 import { VariableHide } from '@grafana/schema';
 import { buildAppScene, filtersVariable, otherFiltersSql } from '../shared/scene';
-import { frameRows, getSignalSource, interpolate, runSql } from '../shared';
+import { frameRows, getSignalSource, interpolate, loadSignalSource, runSql } from '../shared';
 import { VAR_DATASOURCE } from '../constants';
-import { attributeKeysSql, attributeValuesSql, PRIMARY, traceExpression, VAR_PRIMARY } from './sql';
+import { attributeKeysSql, attributeValuesSql, PRIMARY, traceKeyExpression, VAR_PRIMARY } from './sql';
 import { TracesExploration } from './TracesExploration';
 
 export const buildTracesScene = (): EmbeddedScene => {
-  const source = (variable: Parameters<typeof interpolate>[0]) =>
-    getSignalSource(interpolate(variable, `\${${VAR_DATASOURCE}}`), 'traces');
+  const uidOf = (variable: Parameters<typeof interpolate>[0]) => interpolate(variable, `\${${VAR_DATASOURCE}}`);
+  const source = (variable: Parameters<typeof interpolate>[0]) => loadSignalSource(variable, uidOf(variable), 'traces');
 
   const filters = filtersVariable({
     placeholder: 'Add filter',
-    expressionOf: traceExpression,
+    // The selected data source's table shape (JSON or Map attributes), detected before the page queries.
+    expressionOf: (key, variable) => traceKeyExpression(getSignalSource(uidOf(variable), 'traces'))(key),
     getKeys: async (variable) => {
-      const traces = source(variable);
+      const traces = await source(variable);
       if (!traces) {
         return [];
       }
@@ -22,11 +23,11 @@ export const buildTracesScene = (): EmbeddedScene => {
       return [...rows.map((row) => row.key), 'duration'].map((key) => ({ text: key, value: key }));
     },
     getValues: async (variable, key) => {
-      const traces = source(variable);
+      const traces = await source(variable);
       if (!traces || key === 'duration') {
         return [];
       }
-      const condition = `${PRIMARY} AND ${otherFiltersSql(variable, key, traceExpression)}`;
+      const condition = `${PRIMARY} AND ${otherFiltersSql(variable, key, traceKeyExpression(traces))}`;
       return frameRows<{ value: string }>(await runSql(variable, attributeValuesSql(traces, key, condition))).map(
         (row) => row.value
       );

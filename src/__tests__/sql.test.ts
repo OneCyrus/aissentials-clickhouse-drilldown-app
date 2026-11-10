@@ -1,4 +1,4 @@
-import { filterConditionSql, filtersSql, mapAttributeExpression } from '../shared/sql';
+import { filterConditionSql, filtersSql, attributeExpression } from '../shared/sql';
 import { searchMatches } from '../shared/panels';
 import {
   getMetricLabelId,
@@ -182,12 +182,12 @@ describe('traces', () => {
   });
 });
 
-describe('mapAttributeExpression', () => {
+describe('attributeExpression', () => {
   it('maps a prefixed key to its Map column and leaves other keys alone', () => {
     const columns = { resource: 'ResourceAttributes', log: 'LogAttributes' };
-    expect(mapAttributeExpression('resource.k8s.pod.name', columns)).toBe("ResourceAttributes['k8s.pod.name']");
-    expect(mapAttributeExpression("log.it's", columns)).toBe("LogAttributes['it\\'s']");
-    expect(mapAttributeExpression('span.http.route', columns)).toBeUndefined();
-    expect(mapAttributeExpression('resource', columns)).toBeUndefined();
+    expect(attributeExpression('resource.k8s.pod.name', columns)).toBe("ResourceAttributes['k8s.pod.name']");
+    expect(attributeExpression("log.it's", columns)).toBe("LogAttributes['it\\'s']");
+    expect(attributeExpression('span.http.route', columns)).toBeUndefined();
+    expect(attributeExpression('resource', columns)).toBeUndefined();
   });
 });

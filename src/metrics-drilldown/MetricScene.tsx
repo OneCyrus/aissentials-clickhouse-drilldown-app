@@ -14,6 +14,7 @@ import {
   SceneObjectUrlValues,
   VizPanel,
   sceneGraph,
+  SceneReactObject,
 } from '@grafana/scenes';
 import {
   Alert,
@@ -62,7 +63,10 @@ import {
   interpolate,
   getClickHouseDataSources,
   getSignalSource,
+  loadSignalSource,
   LatestRequest,
+  LOADING,
+  LoadStatus,
   metricTableOf,
   headerButton,
   SignalSource,
@@ -81,7 +85,7 @@ import {
   ToolbarGroup,
   supportsSignal,
 } from '../shared';
-import { countSql, logLinesSql, logsExpression } from '../logs-drilldown/sql';
+import { countSql, logLinesSql, logsKeyExpression } from '../logs-drilldown/sql';
 import {
   defaultMetricQuery,
   FILTERS,
@@ -248,6 +252,9 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
   private labelsRequest = new LatestRequest();
   /** The related logs count; switching the logs data source or the filters supersedes it. */
   private logsCountRequest = new LatestRequest();
+  private logsSourceRequest = new LatestRequest();
+  /** Logs data sources whose shape detection the logs tab has started, so it waits for it once. */
+  private logsShapeTried = new Set<string>();
 
   async loadLabels() {
     const isCurrent = this.labelsRequest.start();
@@ -479,7 +486,19 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
     if (!uid || !filters.length || !logsSource) {
       return undefined;
     }
-    return { uid, logsSource, condition: filtersSql(filters, logsExpression) };
+    return { uid, logsSource, condition: filtersSql(filters, logsKeyExpression(logsSource)) };
+  }
+
+  /**
+   * Detects the logs table's attribute shape (JSON or Map) before the related logs query it, and
+   * rebuilds the logs tab once it is known.
+   */
+  private async loadRelatedLogsSource(uid: string) {
+    const isCurrent = this.logsSourceRequest.start();
+    await loadSignalSource(this, uid, 'logs');
+    if (isCurrent() && this.state.actionView === 'logs') {
+      this.build();
+    }
   }
 
   private buildRelatedLogs(): SceneObject | undefined {
@@ -488,6 +507,15 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
       return undefined;
     }
     const { uid, logsSource, condition } = query;
+    if (!logsSource.attributeShapeKnown && !this.logsShapeTried.has(uid)) {
+      // The query depends on the shape; the tab is built again once it is known (or, if the
+      // detection fails, with the Map form).
+      this.logsShapeTried.add(uid);
+      this.loadRelatedLogsSource(uid);
+      return new SceneReactObject({
+        reactNode: <LoadStatus state={LOADING} loadingText="Loading logs…" errorTitle="Error while loading logs" />,
+      });
+    }
     return PanelBuilders.logs()
       .setTitle('Logs')
       .setData(queryRunner([sqlQuery('A', logLinesSql(logsSource, condition, 100), Format.Logs, uid)]))
@@ -499,6 +527,14 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
   /** Counts the related log lines in the background for the tab's badge. */
   async countRelatedLogs() {
     const isCurrent = this.logsCountRequest.start();
+    const logsUid = this.state.logsUid || this.logsSources()[0]?.uid;
+    if (logsUid) {
+      // The count's condition depends on the logs table's attribute shape.
+      await loadSignalSource(this, logsUid, 'logs');
+      if (!isCurrent()) {
+        return;
+      }
+    }
     const query = this.relatedLogsQuery();
     if (!query) {
       this.setState({ logsCount: undefined });

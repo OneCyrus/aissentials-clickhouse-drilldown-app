@@ -11,14 +11,14 @@ import {
 import { CHConfig, MetricType, SignalType } from 'clickhouse/types';
 import { CLICKHOUSE_DS_TYPES } from '../constants';
 import { Format, frameRows, runSql } from './query';
-import { tableSql } from './sql';
+import { AttributeShape, hasJsonAttributes, tableSql } from './sql';
 
 /**
  * Where a signal lives: the ClickHouse data source and the tables of the OpenTelemetry Collector
  * ClickHouse exporter. The apps work on the exporter schema, so only database and table names
  * come from the data source settings.
  */
-export interface SignalSource {
+export interface SignalSource extends AttributeShape {
   uid: string;
   /** The plugin id of the data source: a fork serves the same SQL under its own id. */
   type: string;
@@ -37,6 +37,11 @@ export interface SignalSource {
    * it maps a TraceId to its Start and End, so a trace lookup can bound the scan of the spans table.
    */
   traceIndexTable?: string;
+  /**
+   * For logs and traces: whether loadSignalSource has detected the attribute columns' shape
+   * (`jsonAttributes`, `jsonAllValues`). Until then they read as Map, the exporter's default.
+   */
+  attributeShapeKnown?: boolean;
   /**
    * What the metric tables support, detected from their columns once the tables are resolved:
    * the exporter can write attribute columns as `JSON` instead of `Map`, which reads differently.
@@ -110,7 +115,10 @@ export const getSignalSource = (uid: string, signal: SignalType): SignalSource |
       : signal === 'traces'
         ? config.traces?.defaultTable || defaultTables.traces
         : '';
+  const shape = signal === 'metrics' ? undefined : attributeShapes.get(attributeShapeKey(uid, database, table));
   return {
+    ...shape,
+    attributeShapeKnown: signal === 'metrics' ? undefined : Boolean(shape),
     uid: settings.uid,
     type: settings.type,
     name: settings.name,
@@ -121,6 +129,59 @@ export const getSignalSource = (uid: string, signal: SignalType): SignalSource |
     metricTables: resolved?.tables ?? getConfiguredMetricTables(config.metrics),
     metricFeatures: resolved?.features,
   };
+};
+
+const attributeShapeKey = (uid: string, database: string, table: string) => `${uid}|${database}|${table}`;
+
+/** The attribute shape of each data source's logs or traces table, once detected. */
+const attributeShapes = new Map<string, AttributeShape>();
+const detectingShapes = new Map<string, Promise<void>>();
+
+/**
+ * The logs or traces source with the shape of its attribute columns: Map, or JSON (the exporter's
+ * `json: true`), and for JSON whether the server has JSONAllValues. Detected once per data source
+ * and table, like the metric tables: one DESC TABLE, and for JSON tables a look at
+ * system.functions. A failed detection is not remembered; the source then reads as Map, the
+ * exporter's default, and the next load tries again.
+ */
+export const loadSignalSource = async (
+  sceneObject: SceneObject,
+  uid: string,
+  signal: 'logs' | 'traces'
+): Promise<SignalSource | undefined> => {
+  const source = getSignalSource(uid, signal);
+  if (!source || source.attributeShapeKnown) {
+    return source;
+  }
+  const key = attributeShapeKey(uid, source.database, source.table);
+  let pending = detectingShapes.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const columns = frameRows<{ name: string; type: string }>(
+        await runSql(sceneObject, `DESC TABLE ${tableSql(source.database, source.table)}`, Format.Table, uid)
+      ).map((row) => ({ name: String(row.name), type: String(row.type) }));
+      const shape: AttributeShape = { jsonAttributes: hasJsonAttributes(columns) };
+      if (shape.jsonAttributes) {
+        const rows = frameRows<{ count: number }>(
+          await runSql(
+            sceneObject,
+            "SELECT count() AS count FROM system.functions WHERE name = 'JSONAllValues'",
+            Format.Table,
+            uid
+          )
+        );
+        shape.jsonAllValues = Number(rows[0]?.count) > 0;
+      }
+      attributeShapes.set(key, shape);
+    })().finally(() => detectingShapes.delete(key));
+    detectingShapes.set(key, pending);
+  }
+  try {
+    await pending;
+  } catch {
+    // Without the column types the Map form stays: correct for Map tables, as before detection.
+  }
+  return getSignalSource(uid, signal);
 };
 
 /** The name of the trace-id index table the data source's settings point to. */
