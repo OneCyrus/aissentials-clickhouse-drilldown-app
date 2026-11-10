@@ -810,9 +810,9 @@ function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>) {
               variant="secondary"
               icon="external-link-alt"
               href={model.logsDrilldownUrl()}
-              tooltip="Explore these logs in the Logs Drilldown"
+              tooltip="Explore these logs on the Logs page"
             >
-              Open in Logs Drilldown
+              Open in Logs
             </LinkButton>
           </Toolbar>
           {!body && (

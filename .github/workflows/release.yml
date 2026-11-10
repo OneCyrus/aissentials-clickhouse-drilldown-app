@@ -1,5 +1,7 @@
 # Builds and publishes a release: the archive (signed when the GRAFANA_ACCESS_POLICY_TOKEN secret is
-# set), its checksums and build provenance, as the latest GitHub release.
+# set), its checksums and build provenance, as the latest GitHub release. The archive is attached twice:
+# as <plugin-id>-<version>.zip, and as <plugin-id>.zip, which .../releases/latest/download/<plugin-id>.zip
+# always serves from the latest release (the README's install instructions use it).
 #
 # - Every push to main releases the next patch version (called from ci.yml after the checks).
 # - Run it from the Actions tab with a version, e.g. 0.2.0, for a minor or major version.
@@ -105,7 +107,9 @@ jobs:
         if: ${{ !github.event.repository.private }}
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: ${{ steps.package.outputs.archive }}
+          subject-path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.unversioned_archive }}
 
       - name: Release notes
         env:

@@ -22,8 +22,8 @@ const urlTime = (time: string | { valueOf(): number }): string => {
 };
 
 /**
- * Where "Open in AIssentials ClickHouse Drilldown" leads for a panel or Explore query: the metric of a metrics
- * query, else the app for the query's signal.
+ * Where "Open in ClickHouse app" leads for a panel or Explore query: the metric of a metrics query, else
+ * the page of the query's signal.
  */
 export const getDrilldownPath = (context?: Partial<PluginExtensionPanelContext>): string | undefined => {
   const queries = (context?.targets || []) as CHQueryLike[];
@@ -54,8 +54,8 @@ export const getDrilldownPath = (context?: Partial<PluginExtensionPanelContext>)
 
 export const plugin = new AppPlugin<{}>().setRootPage(App).addLink<PluginExtensionPanelContext>({
   targets: ['grafana/dashboard/panel/menu', 'grafana/explore/toolbar/action'],
-  title: 'Open in AIssentials ClickHouse Drilldown',
-  description: 'Browse the data of this query in AIssentials ClickHouse Drilldown',
+  title: 'Open in ClickHouse app',
+  description: 'Browse the data of this query on the Metrics, Logs or Traces page of the ClickHouse app',
   icon: 'compass',
   path: prefixRoute(ROUTES.Metrics),
   configure: (context) => {
