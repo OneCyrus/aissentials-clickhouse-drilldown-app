@@ -55,13 +55,17 @@ const tablesOf = (source: SignalSource, entry?: Pick<MetricCatalogEntry, 'type'>
     .filter((type) => (!entry || entry.type === type) && source.metricTables[type])
     .map((type) => [type, tableSql(source.database, metricTableOf(source, type))]);
 
-/** The metrics with data matching the filters, across all metric tables. */
+/**
+ * The metrics with data matching the filters, across all metric tables. A metric can have rows with
+ * and without a unit or description (the unit is optional per data point), so these take the
+ * greatest value, which is the non-empty one, instead of any(), which picks a different row per run.
+ */
 export const catalogSql = (source: SignalSource, condition: string): string => {
   const selects = tablesOf(source).map(([type, table]) => {
     const monotonic = type === MetricType.Sum ? 'max(toUInt8(IsMonotonic))' : 'toUInt8(0)';
     return (
-      `SELECT MetricName AS name, ${quoteString(type)} AS type, any(MetricUnit) AS unit, ` +
-      `any(MetricDescription) AS description, ${monotonic} AS monotonic ` +
+      `SELECT MetricName AS name, ${quoteString(type)} AS type, max(MetricUnit) AS unit, ` +
+      `max(MetricDescription) AS description, ${monotonic} AS monotonic ` +
       `FROM ${table} WHERE ${discoveryCondition} AND ${condition} GROUP BY MetricName`
     );
   });
