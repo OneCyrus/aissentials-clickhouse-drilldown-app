@@ -334,6 +334,8 @@ export class TracesExploration extends SceneObjectBase<TracesExplorationState> {
     const rate = (errors: boolean) =>
       PanelBuilders.timeseries()
         .setTitle(errors ? metricTitles.errors : metricTitles.rate)
+        // No error spans is a good result, not missing data.
+        .setNoValue(errors ? 'No errors in this range' : 'No data')
         .setData(queryRunner([sqlQuery('A', rateSql(source, errors))], 64))
         .setCustomFieldConfig('drawStyle', 'bars' as never)
         .setCustomFieldConfig('fillOpacity', 75)

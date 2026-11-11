@@ -20,6 +20,7 @@ import {
 import {
   formatQuantile,
   getMetricFunctions,
+  getMetricLabelTitle,
   metricFunctionLabels,
   usesGroupBy,
   usesSeriesAggregation,
@@ -58,7 +59,11 @@ export function MetricSceneRenderer({ model }: SceneComponentProps<MetricScene>)
   ).map((q) => ({ label: formatQuantile(q), value: String(q) }));
   const groupOptions = [
     { label: 'All', value: ALL },
-    ...labels.map((label) => ({ label: label.key, value: getMetricLabelId(label), description: label.source })),
+    ...labels.map((label) => ({
+      label: getMetricLabelTitle(label, labels),
+      value: getMetricLabelId(label),
+      description: label.source,
+    })),
   ];
   const breakdownable = usesGroupBy(query.fn) || entry.type === MetricType.Histogram;
   const prefixes = Array.from(new Set(catalog.map((other) => metricPrefix(other.name)))).sort();

@@ -184,6 +184,15 @@ export const getMetricLabelAliases = (labels: readonly MetricLabel[]): string[] 
   });
 };
 
+/**
+ * What a label is called in titles and pickers: its key, plus its source when another label has the
+ * same key (a data point attribute and a resource attribute can share one).
+ */
+export const getMetricLabelTitle = (label: MetricLabel, labels: readonly MetricLabel[]): string =>
+  labels.some((other) => other.key === label.key && other.source !== label.source)
+    ? `${label.key} (${label.source})`
+    : label.key;
+
 /** Optional capabilities of a metric table, detected from its columns. */
 export interface MetricTableFeatures {
   /** Attribute columns use the ClickHouse JSON type instead of Map (exporter option `json`). */
