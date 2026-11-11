@@ -16,6 +16,7 @@ import {
 import {
   generateMetricsQuery,
   getMetricFunctions,
+  getMetricLabelTitle,
   getSummaryQuantilesSql,
   MetricCatalogEntry,
   usesGroupBy,
@@ -175,7 +176,9 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
       q: query.quantiles?.map(String),
       metricPrefix: relatedPrefix === 'all' ? undefined : relatedPrefix,
       relatedSearchText: relatedSearch || undefined,
-      logsDs: logsUid,
+      // Only the related logs view uses it; the default (the first logs source) is kept in the URL too,
+      // so a shared link does not depend on the order of the receiver's data sources.
+      logsDs: actionView === 'logs' ? logsUid || this.logsSources()[0]?.uid : logsUid,
     };
   }
 
@@ -417,7 +420,10 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
         isLazy: true,
         children: labels.slice(0, 60).map((label) => {
           const runner = panelQueryRunner([sqlQuery('A', metricSql(source, this.breakdownQuery([label])))], 250);
-          return metricPanel(source, entry, this.breakdownQuery([label]), { title: label.key, legend: false })
+          return metricPanel(source, entry, this.breakdownQuery([label]), {
+            title: getMetricLabelTitle(label, labels),
+            legend: false,
+          })
             .setData(
               splitSeriesData(
                 runner,
@@ -427,7 +433,7 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
               )
             )
             .setDescription(
-              `${entry.name} by ${label.key} (${label.source}). Shows up to ${MAX_OVERVIEW_SERIES} series.`
+              `${entry.name} by ${label.key} (${label.source} attribute). Shows up to ${MAX_OVERVIEW_SERIES} series.`
             )
             .setHeaderActions(headerButton('Select', () => this.setView({ groupBy: getMetricLabelId(label) })))
             .build();
@@ -444,7 +450,10 @@ export class MetricScene extends SceneObjectBase<MetricSceneState> {
           () => this.state.search
         );
         if (layout === 'single') {
-          body = metricPanel(source, entry, breakdown, { title: `${entry.name} by ${label.key}`, legend: true })
+          body = metricPanel(source, entry, breakdown, {
+            title: `${entry.name} by ${getMetricLabelTitle(label, labels)}`,
+            legend: true,
+          })
             .setData(
               splitSeriesData(
                 runner,
