@@ -1,4 +1,4 @@
-# ClickHouse app for Grafana
+# ClickHouse Drilldown for Grafana
 
 [![CI](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/actions/workflows/ci.yml/badge.svg)](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/OneCyrus/aissentials-clickhouse-drilldown-app?sort=semver)](https://github.com/OneCyrus/aissentials-clickhouse-drilldown-app/releases/latest)
@@ -7,7 +7,7 @@
 
 **Explore OpenTelemetry metrics, logs and traces in ClickHouse without writing a single query.**
 
-**ClickHouse** is a Grafana app for OpenTelemetry data stored in ClickHouse by the [OpenTelemetry Collector ClickHouse exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/clickhouseexporter). Pick a metric, a service or a span set and narrow it down by clicking: every chart, breakdown and filter is a query that runs through the ClickHouse data source, with its connection and permissions.
+**ClickHouse Drilldown** is a Grafana app for OpenTelemetry data stored in ClickHouse by the [OpenTelemetry Collector ClickHouse exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/clickhouseexporter). Pick a metric, a service or a span set and narrow it down by clicking: every chart, breakdown and filter is a query that runs through the ClickHouse data source, with its connection and permissions.
 
 ![Metrics overview](src/img/screenshots/metrics-overview.png)
 
@@ -46,7 +46,7 @@
 
 ### Everywhere in Grafana
 
-Panels on dashboards and Explore queries of the ClickHouse data source get an **Open in ClickHouse app** entry, in the panel menu and the Explore toolbar. It opens the matching page (Metrics, Logs or Traces) with the same time range; a metrics query opens its metric.
+Panels on dashboards and Explore queries of the ClickHouse data source get an **Open in ClickHouse Drilldown** entry, in the panel menu and the Explore toolbar. It opens the matching page (Metrics, Logs or Traces) with the same time range; a metrics query opens its metric.
 
 ## Requirements
 
@@ -80,7 +80,7 @@ Panels on dashboards and Explore queries of the ClickHouse data source get an **
    ```
 
 4. Restart Grafana.
-5. Add a ClickHouse data source under **Connections → Data sources** (see [Configuration](#configuration)), then open **Apps → ClickHouse**.
+5. Add a ClickHouse data source under **Connections → Data sources** (see [Configuration](#configuration)), then open **Apps → ClickHouse Drilldown**.
 
 ### Docker
 
@@ -97,7 +97,7 @@ The empty version (`@@`) installs the latest release and updates to the newest o
 
 ### Show the pages in the Drilldown menu
 
-By default the app appears under **Apps** as **ClickHouse**, with **Metrics**, **Logs** and **Traces** below it. To list the three pages directly in Grafana's **Drilldown** menu section, add to `grafana.ini`:
+By default the app appears under **Apps** as **ClickHouse Drilldown**, with **Metrics**, **Logs** and **Traces** below it. To list the three pages directly in Grafana's **Drilldown** menu section, add to `grafana.ini`:
 
 ```ini
 [navigation.app_standalone_pages]
@@ -106,7 +106,7 @@ By default the app appears under **Apps** as **ClickHouse**, with **Metrics**, *
 /a/aissentials-clickhousedrilldown-app/traces = drilldown
 ```
 
-Or, to keep them grouped under **ClickHouse** inside the Drilldown section:
+Or, to keep them grouped under **ClickHouse Drilldown** inside the Drilldown section:
 
 ```ini
 [navigation.app_sections]
