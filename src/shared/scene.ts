@@ -23,20 +23,20 @@ import { datasourceRef, FilterLike, filtersSql } from './index';
  * every accepted ClickHouse plugin id: a fork installed under its own id serves the same SQL and
  * must be selectable, and Grafana routes a query by uid regardless of the type declared with it.
  */
-class ClickHouseDataSourceVariable extends DataSourceVariable {
-  getValueOptions(args: Parameters<DataSourceVariable['getValueOptions']>[0]) {
-    void args;
-    return of(getDataSourceOptions());
+const dataSourceVariable = (signal: SignalType): DataSourceVariable => {
+  class ClickHouseDataSourceVariable extends DataSourceVariable {
+    getValueOptions(args: Parameters<DataSourceVariable['getValueOptions']>[0]) {
+      void args;
+      return of(getDataSourceOptions(signal));
+    }
   }
-}
-
-const dataSourceVariable = (signal: SignalType): DataSourceVariable =>
-  new ClickHouseDataSourceVariable({
+  return new ClickHouseDataSourceVariable({
     name: VAR_DATASOURCE,
     label: 'Data source',
     pluginId: CLICKHOUSE_DS_TYPE,
     value: getDefaultDataSourceUid(signal) || '',
   });
+};
 
 interface FiltersVariableOptions {
   /**

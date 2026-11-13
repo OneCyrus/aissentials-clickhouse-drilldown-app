@@ -98,7 +98,7 @@ export const supportsSignal = (settings: DataSourceInstanceSettings, signal: Sig
 
 /** The data source to start with for a signal. */
 export const getDefaultDataSourceUid = (signal: SignalType): string | undefined =>
-  getClickHouseDataSources(signal).find((settings) => supportsSignal(settings, signal))?.uid;
+  getDataSourcesForSignal(signal)[0]?.uid;
 
 export const getSignalSource = (uid: string, signal: SignalType): SignalSource | undefined => {
   const settings = getDataSourceSrv().getInstanceSettings(uid);
@@ -306,9 +306,20 @@ export const metricTableOf = (source: SignalSource, type: MetricType): string =>
   source.metricTables[type] ?? getConfiguredMetricTables()[type];
 
 /**
+ * The data sources a signal's picker offers: those set up for the signal (single-source mode, one
+ * table per data source), and only if there are none, the data sources that are not set up for one
+ * signal and hold every signal. Data sources of another signal are never offered.
+ */
+export const getDataSourcesForSignal = (signal: SignalType): DataSourceInstanceSettings[] => {
+  const all = getClickHouseDataSources(signal);
+  const own = all.filter((settings) => jsonData(settings).signalType === signal);
+  return own.length ? own : all.filter((settings) => supportsSignal(settings, signal));
+};
+
+/**
  * The data source options of every accepted ClickHouse plugin id, as the data source variable
  * shows them. DataSourceVariable takes a single pluginId, so this is what lets a fork's data
  * sources appear next to the catalog ones.
  */
-export const getDataSourceOptions = (): VariableValueOption[] =>
-  getClickHouseDataSources().map((settings) => ({ label: settings.name, value: settings.uid }));
+export const getDataSourceOptions = (signal: SignalType): VariableValueOption[] =>
+  getDataSourcesForSignal(signal).map((settings) => ({ label: settings.name, value: settings.uid }));
