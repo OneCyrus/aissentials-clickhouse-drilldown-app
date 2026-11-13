@@ -10,7 +10,12 @@ jest.mock('@grafana/runtime', () => ({
 
 // Imported after the mock.
 import { CLICKHOUSE_DS_TYPES } from '../constants';
-import { getClickHouseDataSources, getDataSourceOptions, getSignalSource } from '../shared/datasource';
+import {
+  getClickHouseDataSources,
+  getDataSourceOptions,
+  getDataSourcesForSignal,
+  getSignalSource,
+} from '../shared/datasource';
 
 const source = (uid: string, type: string, signalType: string) =>
   ({ uid, name: uid, type, jsonData: { signalType } }) as unknown as DataSourceInstanceSettings;
@@ -34,7 +39,6 @@ describe('fork data sources', () => {
 
   it('lists only ClickHouse data sources, each once', () => {
     expect(getClickHouseDataSources().map((settings) => settings.uid)).toEqual(['logs', 'metrics']);
-    expect(getDataSourceOptions().map((option) => option.value)).toEqual(['logs', 'metrics']);
   });
 
   it('queries each accepted plugin id instead of only the catalog one', () => {
@@ -44,8 +48,8 @@ describe('fork data sources', () => {
   });
 
   it('offers the fork data source in the picker', () => {
-    const values = getDataSourceOptions().map((option) => option.value);
-    expect(values).toEqual(expect.arrayContaining(['logs', 'metrics']));
+    expect(getDataSourceOptions('metrics').map((option) => option.value)).toEqual(['metrics']);
+    expect(getDataSourceOptions('logs').map((option) => option.value)).toEqual(['logs']);
   });
 
   it('ranks a data source set up for the signal first', () => {
@@ -63,5 +67,30 @@ describe('fork data sources', () => {
     const resolved = getSignalSource('metrics', 'metrics');
     expect(resolved?.type).toBe('onecyrus-clickhouse-datasource');
     expect(resolved?.metricTables).toBeDefined();
+  });
+
+  describe('the picker of a signal', () => {
+    const setup = (sources: DataSourceInstanceSettings[]) =>
+      list.mockImplementation(({ type }: { type: string }) => sources.filter((settings) => settings.type === type));
+    const type = 'grafana-clickhouse-datasource';
+    const pickerOf = (signal: 'metrics' | 'logs' | 'traces') => getDataSourcesForSignal(signal).map((s) => s.uid);
+
+    it('offers only the data sources set up for the signal', () => {
+      setup([source('m', type, 'metrics'), source('l', type, 'logs'), source('t', type, 'traces')]);
+      expect(pickerOf('metrics')).toEqual(['m']);
+      expect(pickerOf('logs')).toEqual(['l']);
+      expect(pickerOf('traces')).toEqual(['t']);
+    });
+
+    it('offers all data sources set up for the signal, and no general one next to them', () => {
+      setup([source('m1', type, 'metrics'), source('any', type, ''), source('m2', type, 'metrics')]);
+      expect(pickerOf('metrics').sort()).toEqual(['m1', 'm2']);
+    });
+
+    it('offers the general data sources when none is set up for the signal, but never another signal', () => {
+      setup([source('any', type, ''), source('l', type, 'logs')]);
+      expect(pickerOf('metrics')).toEqual(['any']);
+      expect(pickerOf('logs')).toEqual(['l']);
+    });
   });
 });
